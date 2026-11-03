@@ -1,0 +1,63 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Prisme</RootNamespace>
+    <AssemblyName>Prisme</AssemblyName>
+    <ApplicationIcon>Assets\prisme.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>1.2.0</Version>
+    <Product>Prisme</Product>
+    <Company>Marius</Company>
+    <Copyright>© 2026 Marius</Copyright>
+    <Description>Prisme — convertisseur de fichiers et téléchargeur de vidéos</Description>
+    <!-- VLC : 64 bits seulement (Prisme est publié en win-x64) -->
+    <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
+    <NoWarn>$(NoWarn);WPF0001;WFO0003</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WinForms ne sert qu'Ã  l'icÃ´ne de notification : pas d'usings globaux qui entrent en conflit avec WPF -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+    <Using Include="System.IO" />
+    <PackageReference Include="PDFsharp" Version="6.2.2" />
+    <!-- aperçu audio/vidéo de l'onglet Retoucher : moteur VLC embarqué, lit aussi MKV, HEVC… -->
+    <PackageReference Include="LibVLCSharp.WPF" Version="3.8.5" />
+    <!-- LibVLCSharp tire le Windows App SDK (pour WinUI) : inutile en WPF, et ses anciennes plateformes « win10-x64 » cassent .NET 10 -->
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.1.1" ExcludeAssets="all" PrivateAssets="all" />
+    <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.21" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- modules VLC inutiles pour un simple aperçu (interfaces, scripts, diffusion réseau, visualisations) -->
+    <VlcWindowsX64ExcludeFiles Include="lua\%2A%2A;plugins\gui\%2A%2A;plugins\lua\%2A%2A;plugins\control\%2A%2A;plugins\stream_out\%2A%2A;plugins\visualization\%2A%2A;plugins\services_discovery\%2A%2A;plugins\keystore\%2A%2A;%2A.lib" />
+  </ItemGroup>
+
+  <!-- VLC cherche ses modules à côté de libvlc.dll : ils restent en fichiers dans publish\libvlc, hors de l'exe unique -->
+  <Target Name="VlcHorsDeLExe" BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <Content Condition="$([System.String]::new('%(Content.Link)').StartsWith('libvlc'))">
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </Content>
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <Resource Include="Assets\logo.png" />
+    <Resource Include="Assets\prisme.ico" />
+    <Content Include="..\vendor\office\**" LinkBase="engines\office" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="..\vendor\ffmpeg.exe" Link="engines\ffmpeg.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="..\vendor\FFMPEG-LICENSE" Link="engines\FFMPEG-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="..\vendor\yt-dlp.exe" Link="engines\yt-dlp.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+  </ItemGroup>
+
+</Project>
+

@@ -1,0 +1,718 @@
+﻿<Window x:Class="Prisme.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Prisme"
+        xmlns:vlc="clr-namespace:LibVLCSharp.WPF;assembly=LibVLCSharp.WPF"
+        Title="Prisme" Width="1080" Height="720" MinWidth="880" MinHeight="600"
+        WindowStartupLocation="CenterScreen" Background="{StaticResource Bg}"
+        FontFamily="{StaticResource Body}" Foreground="{StaticResource Text}"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Ideal" TextOptions.TextRenderingMode="ClearType"
+        AllowDrop="True" Icon="Assets/prisme.ico">
+  <WindowChrome.WindowChrome>
+    <WindowChrome CaptionHeight="44" ResizeBorderThickness="6" GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False"/>
+  </WindowChrome.WindowChrome>
+
+  <Window.Resources>
+    <local:BoolVis x:Key="Vis"/>
+
+    <!-- une tâche de la file -->
+    <DataTemplate x:Key="JobTemplate">
+      <Border Style="{StaticResource CardBox}" Margin="0,0,0,10" Padding="16,13">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <!-- badge du format -->
+          <Grid Width="58" Height="40" Margin="0,0,14,0" VerticalAlignment="Center">
+            <Border CornerRadius="10" Background="{StaticResource SpectrumSoft}" BorderBrush="#33B565FF" BorderThickness="1"/>
+            <TextBlock Text="{Binding Badge}" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       Foreground="{StaticResource Text}" TextTrimming="CharacterEllipsis" Margin="4,0"/>
+          </Grid>
+          <StackPanel Grid.Column="1" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}"/>
+            <Grid Margin="0,7,0,0">
+              <ProgressBar Style="{StaticResource Bar}" Value="{Binding Progress, Mode=OneWay}" IsIndeterminate="{Binding Indeterminate}"
+                           Visibility="{Binding IsActive, Converter={StaticResource Vis}}"/>
+            </Grid>
+            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+              <Path Style="{StaticResource Icon}" Data="{StaticResource IcCheck}" Width="14" Height="14" Stroke="{StaticResource Ok}" Margin="0,0,6,0"
+                    Visibility="{Binding IsDone, Converter={StaticResource Vis}}"/>
+              <Path Style="{StaticResource Icon}" Data="{StaticResource IcAlert}" Width="14" Height="14" Stroke="{StaticResource Err}" Margin="0,0,6,0"
+                    Visibility="{Binding IsError, Converter={StaticResource Vis}}"/>
+              <TextBlock Text="{Binding Status}" FontSize="12.5" Foreground="{StaticResource Text2}"/>
+              <TextBlock Text="{Binding Detail}" FontSize="12.5" Foreground="{StaticResource Err}" Margin="8,0,0,0"
+                         TextTrimming="CharacterEllipsis" MaxWidth="520" ToolTip="{Binding Detail}"/>
+            </StackPanel>
+          </StackPanel>
+          <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+            <Button Style="{StaticResource Btn}" Padding="12,7" Click="OpenJob_Click" Visibility="{Binding IsDone, Converter={StaticResource Vis}}"
+                    ToolTip="Afficher dans l'Explorateur">
+              <StackPanel Orientation="Horizontal">
+                <Path Style="{StaticResource Icon}" Data="{StaticResource IcFolder}" Width="16" Height="16" Margin="0,0,7,0"/>
+                <TextBlock Text="Afficher" FontSize="13"/>
+              </StackPanel>
+            </Button>
+            <Button Style="{StaticResource IconBtn}" Click="CancelJob_Click" ToolTip="Annuler" Margin="6,0,0,0"
+                    Visibility="{Binding IsActive, Converter={StaticResource Vis}}">
+              <Path Style="{StaticResource Icon}" Data="{StaticResource IcStop}" Width="16" Height="16"/>
+            </Button>
+            <Button Style="{StaticResource IconBtn}" Click="RemoveJob_Click" ToolTip="Retirer de la liste" Margin="4,0,0,0">
+              <Button.Visibility>
+                <Binding Path="IsActive" Converter="{StaticResource Vis}" ConverterParameter="not"/>
+              </Button.Visibility>
+              <Path Style="{StaticResource Icon}" Data="{StaticResource IcClose}" Width="14" Height="14"/>
+            </Button>
+          </StackPanel>
+        </Grid>
+      </Border>
+    </DataTemplate>
+
+    <Storyboard x:Key="PageIn">
+      <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.22"/>
+      <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)" From="10" To="0" Duration="0:0:0.28">
+        <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+      </DoubleAnimation>
+    </Storyboard>
+  </Window.Resources>
+
+  <Grid x:Name="Root">
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="232"/>
+      <ColumnDefinition Width="*"/>
+    </Grid.ColumnDefinitions>
+    <!-- halo d'ambiance -->
+    <Ellipse Grid.ColumnSpan="2" Width="620" Height="520" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-260,-200,0" Opacity="0.20" IsHitTestVisible="False">
+      <Ellipse.Fill>
+        <RadialGradientBrush>
+          <GradientStop Color="#B565FF" Offset="0"/>
+          <GradientStop Color="#00B565FF" Offset="1"/>
+        </RadialGradientBrush>
+      </Ellipse.Fill>
+    </Ellipse>
+    <Ellipse Grid.ColumnSpan="2" Width="520" Height="420" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="80,0,0,-280" Opacity="0.12" IsHitTestVisible="False">
+      <Ellipse.Fill>
+        <RadialGradientBrush>
+          <GradientStop Color="#3DA5FF" Offset="0"/>
+          <GradientStop Color="#003DA5FF" Offset="1"/>
+        </RadialGradientBrush>
+      </Ellipse.Fill>
+    </Ellipse>
+
+
+    <!-- ===== Barre latérale ===== -->
+    <Border Grid.Column="0" Background="{StaticResource Rail}" BorderBrush="{StaticResource Stroke}" BorderThickness="0,0,1,0">
+      <DockPanel Margin="16,18,16,18">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="6,4,0,34">
+          <Image Source="Assets/logo.png" Width="34" Height="34" RenderOptions.BitmapScalingMode="HighQuality"/>
+          <TextBlock Text="Prisme" FontFamily="{StaticResource Display}" FontSize="22" FontWeight="SemiBold" Margin="11,0,0,1" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Bottom">
+          <!-- nouvelle version téléchargée -->
+          <Border x:Name="UpdateCard" Visibility="Collapsed" CornerRadius="14" Padding="1.5" Margin="0,0,0,12" Background="{StaticResource Spectrum}">
+            <Border CornerRadius="13" Background="#16132A" Padding="14,12">
+              <StackPanel>
+                <TextBlock x:Name="UpdateCardTitle" FontSize="13.5" FontWeight="SemiBold"/>
+                <TextBlock Text="Prête à installer. Tes réglages sont gardés." FontSize="12" Foreground="{StaticResource Text2}" TextWrapping="Wrap" Margin="0,3,0,10"/>
+                <Button Style="{StaticResource Primary}" Padding="14,7" HorizontalAlignment="Stretch" Click="UpdateNow_Click">
+                  <TextBlock Text="Mettre à jour" Foreground="White" FontSize="13"/>
+                </Button>
+              </StackPanel>
+            </Border>
+          </Border>
+          <Border Style="{StaticResource CardBox}" Padding="14,12" Margin="0,0,0,12" Background="#12121F">
+            <StackPanel>
+              <TextBlock Text="Astuce" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Text3}"/>
+              <TextBlock Text="Clic droit sur un fichier → « Convertir avec Prisme »." FontSize="12.5" Foreground="{StaticResource Text2}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+            </StackPanel>
+          </Border>
+          <TextBlock x:Name="VersionText" FontSize="11.5" Foreground="{StaticResource Text3}" Margin="8,0,0,0"/>
+        </StackPanel>
+
+        <StackPanel>
+          <RadioButton x:Name="NavConvert" Style="{StaticResource Nav}" IsChecked="True" Checked="Nav_Checked" Tag="convert">
+            <StackPanel Orientation="Horizontal">
+              <Path Style="{StaticResource Icon}" Data="{StaticResource IcConvert}" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}"/>
+              <TextBlock Text="Convertir" Margin="12,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
+          </RadioButton>
+          <RadioButton x:Name="NavEdit" Style="{StaticResource Nav}" Checked="Nav_Checked" Tag="edit">
+            <StackPanel Orientation="Horizontal">
+              <Path Style="{StaticResource Icon}" Data="{StaticResource IcScissors}" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}"/>
+              <TextBlock Text="Retoucher" Margin="12,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
+          </RadioButton>
+          <RadioButton x:Name="NavDownload" Style="{StaticResource Nav}" Checked="Nav_Checked" Tag="download">
+            <StackPanel Orientation="Horizontal">
+              <Path Style="{StaticResource Icon}" Data="{StaticResource IcDownload}" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}"/>
+              <TextBlock Text="Télécharger" Margin="12,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
+          </RadioButton>
+          <RadioButton x:Name="NavSettings" Style="{StaticResource Nav}" Checked="Nav_Checked" Tag="settings">
+            <StackPanel Orientation="Horizontal">
+              <Path Style="{StaticResource Icon}" Data="{StaticResource IcSettings}" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}"/>
+              <TextBlock Text="Réglages" Margin="12,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
+          </RadioButton>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <!-- ===== Contenu ===== -->
+    <Grid Grid.Column="1">
+      <!-- boutons de fenêtre -->
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Panel.ZIndex="10" WindowChrome.IsHitTestVisibleInChrome="True">
+        <Button Style="{StaticResource CaptionBtn}" Click="Min_Click" ToolTip="Réduire">
+          <Path Style="{StaticResource Icon}" Data="{StaticResource IcMin}" Width="11" Height="11" StrokeThickness="1.3"
+                Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+        </Button>
+        <Button Style="{StaticResource CaptionBtn}" Click="Max_Click" ToolTip="Agrandir">
+          <Path x:Name="MaxIcon" Style="{StaticResource Icon}" Data="{StaticResource IcMax}" Width="10" Height="10" StrokeThickness="1.3"
+                Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+        </Button>
+        <Button Style="{StaticResource CaptionClose}" Click="Close_Click" ToolTip="Fermer">
+          <Path Style="{StaticResource Icon}" Data="{StaticResource IcClose}" Width="11" Height="11" StrokeThickness="1.3"
+                Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+        </Button>
+      </StackPanel>
+
+      <!-- ===== Page Convertir ===== -->
+      <ScrollViewer x:Name="PageConvert" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer.RenderTransform><TranslateTransform/></ScrollViewer.RenderTransform>
+        <StackPanel Margin="44,40,40,24">
+        <StackPanel>
+          <TextBlock Style="{StaticResource H1}" Text="Convertir"/>
+          <TextBlock Style="{StaticResource Sub}" Text="Dépose tes fichiers, choisis le format. C'est tout."/>
+        </StackPanel>
+
+        <!-- zone de dépôt -->
+        <Grid Grid.Row="1" Margin="0,24,0,0" x:Name="DropZone" Cursor="Hand" MouseLeftButtonUp="DropZone_Click" Background="Transparent">
+          <Border x:Name="DropGlow" CornerRadius="18" Background="{StaticResource SpectrumSoft}" Opacity="0"/>
+          <Rectangle x:Name="DropBorder" RadiusX="18" RadiusY="18" Stroke="{StaticResource StrokeHi}" StrokeThickness="1.5" StrokeDashArray="5 4"/>
+          <!-- vide -->
+          <StackPanel x:Name="DropEmpty" HorizontalAlignment="Center" Margin="0,30,0,30">
+            <Grid Width="64" Height="64" HorizontalAlignment="Center">
+              <Border CornerRadius="18" Background="{StaticResource SpectrumSoft}"/>
+              <Path Style="{StaticResource Icon}" Data="{StaticResource IcUpload}" Width="28" Height="28" Stroke="{StaticResource Text}"/>
+            </Grid>
+            <TextBlock Text="Glisse tes fichiers ici" FontFamily="{StaticResource Display}" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,16,0,0"/>
+            <TextBlock HorizontalAlignment="Center" Margin="0,6,0,0" FontSize="13" Foreground="{StaticResource Text2}">
+              <Run Text="ou"/> <Run Text="clique pour parcourir" Foreground="#C9A8FF"/> <Run Text=" · audio, vidéo, image, PDF, Word, Excel, PowerPoint"/>
+            </TextBlock>
+          </StackPanel>
+          <!-- fichiers choisis -->
+          <DockPanel x:Name="DropFilled" Visibility="Collapsed" Margin="18,14,14,14">
+            <DockPanel DockPanel.Dock="Top" Margin="2,0,0,8">
+              <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Click="ClearFiles_Click" ToolTip="Tout retirer">
+                <Path Style="{StaticResource Icon}" Data="{StaticResource IcTrash}" Width="16" Height="16"/>
+              </Button>
+              <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Click="DropZone_Click" ToolTip="Ajouter des fichiers" Margin="0,0,4,0">
+                <TextBlock Text="+ Ajouter" FontSize="13"/>
+              </Button>
+              <TextBlock x:Name="FilesCount" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource Text2}" VerticalAlignment="Center"/>
+            </DockPanel>
+            <ScrollViewer MaxHeight="112" VerticalScrollBarVisibility="Auto">
+              <ItemsControl x:Name="FilesList">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border Background="{StaticResource CardHover}" CornerRadius="9" Padding="10,6,4,6" Margin="0,0,8,8" MaxWidth="300">
+                      <StackPanel Orientation="Horizontal">
+                        <Path Style="{StaticResource Icon}" Data="{Binding Icon}" Width="15" Height="15" Stroke="#C9A8FF"/>
+                        <TextBlock Text="{Binding Name}" FontSize="13" Margin="8,0,4,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="220" ToolTip="{Binding Path}"/>
+                        <Button Style="{StaticResource IconBtn}" Padding="4" Click="EditFile_Click" ToolTip="{Binding EditTip}"
+                                Visibility="{Binding Editable, Converter={StaticResource Vis}}">
+                          <Path Style="{StaticResource Icon}" Data="{StaticResource IcScissors}" Width="12" Height="12"/>
+                        </Button>
+                        <Button Style="{StaticResource IconBtn}" Padding="4" Click="RemoveFile_Click" ToolTip="Retirer">
+                          <Path Style="{StaticResource Icon}" Data="{StaticResource IcClose}" Width="10" Height="10"/>
+                        </Button>
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </DockPanel>
+        </Grid>
+
+        <!-- formats de sortie -->
+        <StackPanel Grid.Row="2" x:Name="TargetsPanel" Margin="0,22,0,0" Visibility="Collapsed">
+          <!-- un bloc de formats par type de fichier (audio, vidéo, image…) -->
+          <ItemsControl x:Name="GroupsList">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Margin="0,0,0,6">
+                  <TextBlock Style="{StaticResource Section}" Text="{Binding Header}"/>
+                  <ItemsControl ItemsSource="{Binding Targets}">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Button Style="{StaticResource Btn}" Margin="0,0,10,10" Padding="0" Click="Target_Click" MinWidth="118"
+                                Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ItemsControl}}">
+                          <StackPanel Margin="16,11,16,11">
+                            <TextBlock Text="{Binding Label}" FontFamily="{StaticResource Display}" FontSize="16" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding Hint}" FontSize="11.5" Foreground="{StaticResource Text3}" Margin="0,2,0,0"/>
+                          </StackPanel>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+
+        <!-- file des conversions -->
+        <DockPanel Grid.Row="3" Margin="0,18,0,0">
+          <DockPanel DockPanel.Dock="Top" x:Name="ConvHeader" Visibility="Collapsed">
+            <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Click="ClearDone_Click" Tag="conv" Margin="0,-6,0,0">
+              <TextBlock Text="Effacer les terminées" FontSize="12.5"/>
+            </Button>
+            <TextBlock Style="{StaticResource Section}" Text="ACTIVITÉ"/>
+          </DockPanel>
+          <ItemsControl x:Name="ConvList" ItemTemplate="{StaticResource JobTemplate}"/>
+        </DockPanel>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- ===== Page Retoucher ===== -->
+      <ScrollViewer x:Name="PageEdit" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+        <ScrollViewer.RenderTransform><TranslateTransform/></ScrollViewer.RenderTransform>
+        <StackPanel Margin="44,40,40,24">
+          <TextBlock Style="{StaticResource H1}" Text="Retoucher"/>
+          <TextBlock Style="{StaticResource Sub}" Text="Garde un extrait d'une musique ou d'une vidéo, assemble plusieurs sons en un seul, recadre ou redimensionne une image."/>
+
+          <!-- rien de chargé -->
+          <Grid x:Name="EdDrop" Margin="0,24,0,0" Cursor="Hand" MouseLeftButtonUp="EdBrowse_Click" Background="Transparent">
+            <Rectangle RadiusX="18" RadiusY="18" Stroke="{StaticResource StrokeHi}" StrokeThickness="1.5" StrokeDashArray="5 4"/>
+            <StackPanel HorizontalAlignment="Center" Margin="0,30,0,30">
+              <Grid Width="64" Height="64" HorizontalAlignment="Center">
+                <Border CornerRadius="18" Background="{StaticResource SpectrumSoft}"/>
+                <Path Style="{StaticResource Icon}" Data="{StaticResource IcScissors}" Width="28" Height="28" Stroke="{StaticResource Text}"/>
+              </Grid>
+              <TextBlock Text="Glisse un fichier ici" FontFamily="{StaticResource Display}" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,16,0,0"/>
+              <TextBlock HorizontalAlignment="Center" Margin="0,6,0,0" FontSize="13" Foreground="{StaticResource Text2}" TextAlignment="Center">
+                <Run Text="ou"/> <Run Text="clique pour parcourir" Foreground="#C9A8FF"/> <Run Text=" · une musique, une vidéo ou une image"/>
+                <LineBreak/><Run Text="Plusieurs musiques d'un coup : pour les assembler en un seul fichier" Foreground="{StaticResource Text3}"/>
+              </TextBlock>
+              <TextBlock x:Name="EdDropError" Foreground="{StaticResource Err}" FontSize="13" HorizontalAlignment="Center" Margin="0,10,0,0" Visibility="Collapsed"/>
+            </StackPanel>
+          </Grid>
+
+          <!-- un fichier chargé -->
+          <StackPanel x:Name="EdPanel" Visibility="Collapsed" Margin="0,24,0,0">
+            <Border Style="{StaticResource CardBox}" Padding="14,8,8,8">
+              <DockPanel>
+                <Button DockPanel.Dock="Right" Style="{StaticResource Btn}" Padding="14,7" FontSize="13" Content="Autre fichier…" Click="EdBrowse_Click"/>
+                <Path x:Name="EdIcon" Style="{StaticResource Icon}" Width="18" Height="18" Stroke="#C9A8FF" Margin="0,0,12,0"/>
+                <TextBlock x:Name="EdInfo" DockPanel.Dock="Right" VerticalAlignment="Center" FontSize="12.5" Foreground="{StaticResource Text3}" Margin="10,0,14,0"/>
+                <TextBlock x:Name="EdName" VerticalAlignment="Center" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+              </DockPanel>
+            </Border>
+
+            <!-- son / vidéo : garder un extrait -->
+            <StackPanel x:Name="EdMedia" Margin="0,14,0,0">
+              <Border CornerRadius="14" Background="#05050A" BorderBrush="{StaticResource Stroke}" BorderThickness="1" ClipToBounds="True">
+                <Grid x:Name="EdScreen" Height="320">
+                  <vlc:VideoView x:Name="EdVideo"/>
+                  <StackPanel x:Name="EdAudioArt" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Grid Width="72" Height="72" HorizontalAlignment="Center">
+                      <Border CornerRadius="20" Background="{StaticResource SpectrumSoft}"/>
+                      <Path Style="{StaticResource Icon}" Data="{StaticResource IcAudio}" Width="32" Height="32" Stroke="{StaticResource Text}"/>
+                    </Grid>
+                  </StackPanel>
+                  <StackPanel x:Name="EdLoading" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
+                    <Control Template="{StaticResource Spinner}" HorizontalAlignment="Center"/>
+                    <TextBlock Style="{StaticResource LoadingText}" Text="Ouverture de l'aperçu…"/>
+                  </StackPanel>
+                  <TextBlock x:Name="EdNoPreview" VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="20,0,20,14" TextWrapping="Wrap" TextAlignment="Center"
+                             FontSize="12.5" Foreground="{StaticResource Text3}" Visibility="Collapsed"
+                             Text="Aperçu impossible pour ce format : place le début et la fin sur la frise ou tape les temps, la coupe marchera quand même."/>
+                </Grid>
+              </Border>
+              <!-- frise : poignées blanches = début et fin, trait rose = lecture -->
+              <Grid x:Name="EdTimeline" Height="54" Margin="0,14,0,0" Background="Transparent" Cursor="Hand"
+                    MouseLeftButtonDown="EdTimeline_Down" MouseMove="EdTimeline_Move" MouseLeftButtonUp="EdTimeline_Up" SizeChanged="EdTimeline_Size">
+                <Border Height="36" CornerRadius="10" Background="{StaticResource Card}" BorderBrush="{StaticResource Stroke}" BorderThickness="1"/>
+                <Canvas>
+                  <Border x:Name="EdBand" Height="36" Canvas.Top="9" Background="#3DB565FF" BorderBrush="#B565FF" BorderThickness="0,2"/>
+                  <Border x:Name="EdHandleA" Width="12" Height="48" Canvas.Top="3" CornerRadius="6" Background="White" ToolTip="Début"/>
+                  <Border x:Name="EdHandleB" Width="12" Height="48" Canvas.Top="3" CornerRadius="6" Background="White" ToolTip="Fin"/>
+                  <Rectangle x:Name="EdHead" Width="2" Height="54" Fill="#FF4D7E" IsHitTestVisible="False"/>
+                </Canvas>
+              </Grid>
+              <DockPanel Margin="2,8,2,0">
+                <TextBlock x:Name="EdTotal" DockPanel.Dock="Right" FontSize="12.5" Foreground="{StaticResource Text3}"/>
+                <TextBlock x:Name="EdNow" FontSize="12.5" Foreground="{StaticResource Text2}"/>
+              </DockPanel>
+              <WrapPanel Margin="0,12,0,0">
+                <Button x:Name="EdPlayBtn" Style="{StaticResource Btn}" Margin="0,0,10,10" Click="EdPlay_Click" ToolTip="Lecture / pause (Espace)">
+                  <StackPanel Orientation="Horizontal">
+                    <Path x:Name="EdPlayIcon" Style="{StaticResource Icon}" Data="{StaticResource IcPlay}" Width="15" Height="15"/>
+                    <TextBlock x:Name="EdPlayText" Text="Lecture" Margin="8,0,0,0" FontSize="13.5"/>
+                  </StackPanel>
+                </Button>
+                <Button x:Name="EdPlaySelBtn" Style="{StaticResource Btn}" Margin="0,0,10,10" Click="EdPlaySel_Click" Content="Écouter l'extrait" FontSize="13.5"/>
+                <Button x:Name="EdSetABtn" Style="{StaticResource Btn}" Margin="0,0,10,10" Click="EdSetStart_Click" Content="Début ici" FontSize="13.5" ToolTip="Le début de l'extrait passe à l'endroit écouté"/>
+                <Button x:Name="EdSetBBtn" Style="{StaticResource Btn}" Margin="0,0,10,10" Click="EdSetEnd_Click" Content="Fin ici" FontSize="13.5" ToolTip="La fin de l'extrait passe à l'endroit écouté"/>
+              </WrapPanel>
+              <WrapPanel Margin="0,6,0,0">
+                <StackPanel Margin="0,0,14,0">
+                  <TextBlock Style="{StaticResource Section}" Text="DÉBUT"/>
+                  <TextBox x:Name="EdStartBox" Style="{StaticResource Field}" Width="130" Height="44" Tag="0:00" LostFocus="EdTimeBox_Commit" KeyDown="EdTimeBox_Key"/>
+                </StackPanel>
+                <StackPanel Margin="0,0,14,0">
+                  <TextBlock Style="{StaticResource Section}" Text="FIN"/>
+                  <TextBox x:Name="EdEndBox" Style="{StaticResource Field}" Width="130" Height="44" LostFocus="EdTimeBox_Commit" KeyDown="EdTimeBox_Key"/>
+                </StackPanel>
+                <StackPanel>
+                  <TextBlock Style="{StaticResource Section}" Text="DURÉE DE L'EXTRAIT"/>
+                  <TextBlock x:Name="EdLen" FontFamily="{StaticResource Display}" FontSize="20" FontWeight="SemiBold" Margin="2,8,0,0"/>
+                </StackPanel>
+              </WrapPanel>
+            </StackPanel>
+
+            <!-- image : recadrer, redimensionner -->
+            <Grid x:Name="EdImage" Margin="0,14,0,0">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="270"/>
+              </Grid.ColumnDefinitions>
+              <Border CornerRadius="14" Background="#05050A" BorderBrush="{StaticResource Stroke}" BorderThickness="1" ClipToBounds="True">
+                <Grid x:Name="EdStage" Height="460" Background="Transparent" Cursor="Cross"
+                      MouseLeftButtonDown="EdStage_Down" MouseMove="EdStage_Move" MouseLeftButtonUp="EdStage_Up" SizeChanged="EdStage_Size">
+                  <Image x:Name="EdPic" Stretch="Uniform" Margin="16" RenderOptions.BitmapScalingMode="HighQuality"/>
+                  <Path x:Name="EdShade" Fill="#A6000000" IsHitTestVisible="False"/>
+                  <Canvas IsHitTestVisible="False">
+                    <Rectangle x:Name="EdCropRect" Stroke="White" StrokeThickness="1.5"/>
+                    <Rectangle x:Name="EdC0" Width="12" Height="12" Fill="White"/>
+                    <Rectangle x:Name="EdC1" Width="12" Height="12" Fill="White"/>
+                    <Rectangle x:Name="EdC2" Width="12" Height="12" Fill="White"/>
+                    <Rectangle x:Name="EdC3" Width="12" Height="12" Fill="White"/>
+                  </Canvas>
+                  <TextBlock x:Name="EdPicMsg" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource Text2}" FontSize="14"/>
+                  <StackPanel x:Name="EdPicLoading" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" IsHitTestVisible="False">
+                    <Control Template="{StaticResource Spinner}" HorizontalAlignment="Center"/>
+                    <TextBlock Style="{StaticResource LoadingText}" Text="Chargement de l'image…"/>
+                  </StackPanel>
+                </Grid>
+              </Border>
+              <StackPanel Grid.Column="1" Margin="18,0,0,0">
+                <TextBlock Style="{StaticResource Section}" Text="RECADRER"/>
+                <TextBlock Text="Trace un cadre sur l'image, déplace-le ou tire ses coins." FontSize="12.5" Foreground="{StaticResource Text3}" TextWrapping="Wrap" Margin="2,0,0,10"/>
+                <WrapPanel x:Name="EdRatios">
+                  <RadioButton Style="{StaticResource Chip}" GroupName="ratio" Tag="free" Content="Libre" IsChecked="True" Checked="EdRatio_Click"/>
+                  <RadioButton Style="{StaticResource Chip}" GroupName="ratio" Tag="orig" Content="Originale" Checked="EdRatio_Click"/>
+                  <RadioButton Style="{StaticResource Chip}" GroupName="ratio" Tag="1:1" Content="Carré" Checked="EdRatio_Click"/>
+                  <RadioButton Style="{StaticResource Chip}" GroupName="ratio" Tag="4:3" Content="4:3" Checked="EdRatio_Click"/>
+                  <RadioButton Style="{StaticResource Chip}" GroupName="ratio" Tag="3:2" Content="3:2" Checked="EdRatio_Click"/>
+                  <RadioButton Style="{StaticResource Chip}" GroupName="ratio" Tag="16:9" Content="16:9" Checked="EdRatio_Click"/>
+                  <RadioButton Style="{StaticResource Chip}" GroupName="ratio" Tag="9:16" Content="9:16 · story" Checked="EdRatio_Click"/>
+                  <RadioButton Style="{StaticResource Chip}" GroupName="ratio" Tag="4:5" Content="4:5 · post" Checked="EdRatio_Click"/>
+                </WrapPanel>
+
+                <TextBlock Style="{StaticResource Section}" Text="TAILLE (PIXELS)" Margin="2,16,0,10"/>
+                <StackPanel Orientation="Horizontal">
+                  <TextBox x:Name="EdW" Style="{StaticResource Field}" Width="100" Height="42" FontSize="14" TextChanged="EdSize_Changed" ToolTip="Largeur"/>
+                  <TextBlock Text="×" FontSize="16" Foreground="{StaticResource Text3}" VerticalAlignment="Center" Margin="10,0"/>
+                  <TextBox x:Name="EdH" Style="{StaticResource Field}" Width="100" Height="42" FontSize="14" TextChanged="EdSize_Changed" ToolTip="Hauteur"/>
+                </StackPanel>
+                <DockPanel Margin="2,12,0,0">
+                  <CheckBox x:Name="EdLock" DockPanel.Dock="Right" Style="{StaticResource Switch}" IsChecked="True" VerticalAlignment="Center"/>
+                  <TextBlock Text="Garder les proportions" FontSize="13.5" VerticalAlignment="Center"/>
+                </DockPanel>
+                <WrapPanel Margin="0,12,0,0">
+                  <Button Style="{StaticResource Btn}" Padding="11,6" Margin="0,0,6,6" FontSize="12.5" Content="25 %" Tag="0.25" Click="EdPct_Click"/>
+                  <Button Style="{StaticResource Btn}" Padding="11,6" Margin="0,0,6,6" FontSize="12.5" Content="50 %" Tag="0.5" Click="EdPct_Click"/>
+                  <Button Style="{StaticResource Btn}" Padding="11,6" Margin="0,0,6,6" FontSize="12.5" Content="75 %" Tag="0.75" Click="EdPct_Click"/>
+                  <Button Style="{StaticResource Btn}" Padding="11,6" Margin="0,0,6,6" FontSize="12.5" Content="100 %" Tag="1" Click="EdPct_Click"/>
+                </WrapPanel>
+                <TextBlock x:Name="EdSizeInfo" FontSize="12.5" Foreground="{StaticResource Text3}" TextWrapping="Wrap" Margin="2,8,0,0"/>
+                <Button Style="{StaticResource Btn}" HorizontalAlignment="Left" Padding="14,7" Margin="0,16,0,0" FontSize="13" Content="Tout remettre à zéro" Click="EdReset_Click"/>
+              </StackPanel>
+            </Grid>
+
+            <TextBlock Style="{StaticResource Section}" Text="ENREGISTRER EN" Margin="2,24,0,10"/>
+            <ItemsControl x:Name="EdTargets">
+              <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Button Style="{StaticResource Btn}" Margin="0,0,10,10" Padding="0" Click="EdSave_Click" MinWidth="118">
+                    <StackPanel Margin="16,11,16,11">
+                      <TextBlock Text="{Binding Label}" FontFamily="{StaticResource Display}" FontSize="16" FontWeight="SemiBold"/>
+                      <TextBlock Text="{Binding Hint}" FontSize="11.5" Foreground="{StaticResource Text3}" Margin="0,2,0,0"/>
+                    </StackPanel>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock x:Name="EdError" Foreground="{StaticResource Err}" FontSize="13" Margin="2,2,0,0" Visibility="Collapsed" TextWrapping="Wrap"/>
+          </StackPanel>
+
+          <!-- plusieurs musiques : assembler -->
+          <StackPanel x:Name="MixPanel" Visibility="Collapsed" Margin="0,24,0,0">
+            <DockPanel Margin="2,0,0,10">
+              <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Click="MixClear_Click" ToolTip="Tout retirer">
+                <Path Style="{StaticResource Icon}" Data="{StaticResource IcTrash}" Width="16" Height="16"/>
+              </Button>
+              <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Click="EdBrowse_Click" Margin="0,0,4,0" ToolTip="Ajouter des musiques">
+                <TextBlock Text="+ Ajouter" FontSize="13"/>
+              </Button>
+              <TextBlock x:Name="MixTitle" Style="{StaticResource Section}" Margin="0" VerticalAlignment="Center"/>
+            </DockPanel>
+            <Border Style="{StaticResource CardBox}" Padding="6">
+              <ItemsControl x:Name="MixList">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <DockPanel Margin="8,4">
+                      <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Padding="6" Click="MixRemove_Click" ToolTip="Retirer">
+                        <Path Style="{StaticResource Icon}" Data="{StaticResource IcClose}" Width="11" Height="11"/>
+                      </Button>
+                      <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Padding="6" Click="MixDown_Click" ToolTip="Descendre">
+                        <TextBlock Text="↓" FontSize="14"/>
+                      </Button>
+                      <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Padding="6" Click="MixUp_Click" ToolTip="Monter">
+                        <TextBlock Text="↑" FontSize="14"/>
+                      </Button>
+                      <TextBlock DockPanel.Dock="Right" Text="{Binding Length}" FontSize="12.5" Foreground="{StaticResource Text3}" VerticalAlignment="Center" Margin="10,0,12,0"/>
+                      <TextBlock Text="{Binding Number}" Width="28" FontSize="12.5" Foreground="{StaticResource Text3}" VerticalAlignment="Center"/>
+                      <TextBlock Text="{Binding Name}" FontSize="13.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}"/>
+                    </DockPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </Border>
+            <TextBlock Style="{StaticResource Section}" Text="ASSEMBLER À LA SUITE EN" Margin="2,22,0,10"/>
+            <ItemsControl x:Name="MixTargets">
+              <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Button Style="{StaticResource Btn}" Margin="0,0,10,10" Padding="0" Click="MixSave_Click" MinWidth="118">
+                    <StackPanel Margin="16,11,16,11">
+                      <TextBlock Text="{Binding Label}" FontFamily="{StaticResource Display}" FontSize="16" FontWeight="SemiBold"/>
+                      <TextBlock Text="{Binding Hint}" FontSize="11.5" Foreground="{StaticResource Text3}" Margin="0,2,0,0"/>
+                    </StackPanel>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+
+          <!-- activité (la même file que Convertir) -->
+          <DockPanel Margin="0,18,0,0">
+            <DockPanel DockPanel.Dock="Top" x:Name="EdHeader" Visibility="Collapsed">
+              <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Click="ClearDone_Click" Tag="conv" Margin="0,-6,0,0">
+                <TextBlock Text="Effacer les terminées" FontSize="12.5"/>
+              </Button>
+              <TextBlock Style="{StaticResource Section}" Text="ACTIVITÉ"/>
+            </DockPanel>
+            <ItemsControl x:Name="EdList" ItemTemplate="{StaticResource JobTemplate}"/>
+          </DockPanel>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- ===== Page Télécharger ===== -->
+      <ScrollViewer x:Name="PageDownload" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+        <ScrollViewer.RenderTransform><TranslateTransform/></ScrollViewer.RenderTransform>
+        <StackPanel Margin="44,40,40,24">
+        <StackPanel>
+          <TextBlock Style="{StaticResource H1}" Text="Télécharger"/>
+          <TextBlock Style="{StaticResource Sub}" Text="Colle un lien YouTube, X, TikTok, Instagram, Facebook, Vimeo…"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Margin="0,24,0,0">
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*"/>
+              <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="UrlBox" Style="{StaticResource Field}" Height="52" Tag="https://…" KeyDown="UrlBox_KeyDown"/>
+            <Button Grid.Column="1" Style="{StaticResource Btn}" Margin="10,0,0,0" Height="52" Click="Paste_Click" ToolTip="Coller le lien copié">
+              <StackPanel Orientation="Horizontal">
+                <Path Style="{StaticResource Icon}" Data="{StaticResource IcPaste}" Width="17" Height="17"/>
+                <TextBlock Text="Coller" Margin="8,0,0,0"/>
+              </StackPanel>
+            </Button>
+          </Grid>
+
+          <TextBlock Style="{StaticResource Section}" Text="FORMAT" Margin="2,22,0,10"/>
+          <WrapPanel>
+            <RadioButton Style="{StaticResource Chip}" GroupName="dl" Tag="best" IsChecked="True" x:Name="DlBest">
+              <StackPanel Orientation="Horizontal">
+                <Path Style="{StaticResource Icon}" Data="{StaticResource IcVideo}" Width="16" Height="16" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}"/>
+                <TextBlock Text="Vidéo · meilleure qualité" Margin="8,0,0,0"/>
+              </StackPanel>
+            </RadioButton>
+            <RadioButton Style="{StaticResource Chip}" GroupName="dl" Tag="1080" Content="Vidéo · 1080p"/>
+            <RadioButton Style="{StaticResource Chip}" GroupName="dl" Tag="720" Content="Vidéo · 720p (léger)"/>
+            <RadioButton Style="{StaticResource Chip}" GroupName="dl" Tag="mp3">
+              <StackPanel Orientation="Horizontal">
+                <Path Style="{StaticResource Icon}" Data="{StaticResource IcAudio}" Width="16" Height="16" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}"/>
+                <TextBlock Text="Audio · MP3" Margin="8,0,0,0"/>
+              </StackPanel>
+            </RadioButton>
+          </WrapPanel>
+
+          <TextBlock Style="{StaticResource Section}" Text="ENREGISTRER DANS" Margin="2,14,0,10"/>
+          <Border Style="{StaticResource CardBox}" Padding="14,8,8,8">
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Style="{StaticResource Btn}" Padding="14,7" Click="ChangeDlDir_Click" Content="Changer…" FontSize="13"/>
+              <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Click="OpenDlDir_Click" ToolTip="Ouvrir le dossier" Margin="0,0,6,0">
+                <Path Style="{StaticResource Icon}" Data="{StaticResource IcFolder}" Width="17" Height="17"/>
+              </Button>
+              <Path Style="{StaticResource Icon}" Data="{StaticResource IcFolder}" Width="18" Height="18" Stroke="#C9A8FF" Margin="0,0,12,0"/>
+              <TextBlock x:Name="DlDirText" VerticalAlignment="Center" FontSize="13.5" TextTrimming="CharacterEllipsis"/>
+            </DockPanel>
+          </Border>
+
+          <Button Style="{StaticResource Primary}" HorizontalAlignment="Left" Margin="0,22,0,0" Click="Download_Click">
+            <StackPanel Orientation="Horizontal">
+              <Path Style="{StaticResource Icon}" Data="{StaticResource IcDownload}" Width="18" Height="18" Stroke="White" StrokeThickness="2"/>
+              <TextBlock Text="Télécharger" Margin="9,0,0,0" FontSize="15" Foreground="White"/>
+            </StackPanel>
+          </Button>
+          <TextBlock x:Name="UrlError" Foreground="{StaticResource Err}" FontSize="13" Margin="2,10,0,0" Visibility="Collapsed"/>
+        </StackPanel>
+
+        <DockPanel Grid.Row="2" Margin="0,26,0,0">
+          <DockPanel DockPanel.Dock="Top" x:Name="DlHeader" Visibility="Collapsed">
+            <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Click="ClearDone_Click" Tag="dl" Margin="0,-6,0,0">
+              <TextBlock Text="Effacer les terminés" FontSize="12.5"/>
+            </Button>
+            <TextBlock Style="{StaticResource Section}" Text="TÉLÉCHARGEMENTS"/>
+          </DockPanel>
+          <ItemsControl x:Name="DlList" ItemTemplate="{StaticResource JobTemplate}"/>
+        </DockPanel>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- ===== Page Réglages ===== -->
+      <ScrollViewer x:Name="PageSettings" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer.RenderTransform><TranslateTransform/></ScrollViewer.RenderTransform>
+        <StackPanel Margin="44,40,40,30" MaxWidth="820" HorizontalAlignment="Left">
+          <TextBlock Style="{StaticResource H1}" Text="Réglages"/>
+          <TextBlock Style="{StaticResource Sub}" Text="Tout est enregistré automatiquement."/>
+
+          <TextBlock Style="{StaticResource Section}" Text="GÉNÉRAL" Margin="2,28,0,10"/>
+          <Border Style="{StaticResource CardBox}" Padding="0">
+            <StackPanel>
+              <DockPanel Margin="20,16">
+                <CheckBox x:Name="SetAutostart" DockPanel.Dock="Right" Style="{StaticResource Switch}" Click="Setting_Changed" VerticalAlignment="Center"/>
+                <StackPanel>
+                  <TextBlock Text="Démarrer avec Windows" FontSize="14.5"/>
+                  <TextBlock Text="Prisme se lance discrètement dans la zone de notification." FontSize="12.5" Foreground="{StaticResource Text3}" Margin="0,3,0,0"/>
+                </StackPanel>
+              </DockPanel>
+              <Border Height="1" Background="{StaticResource Stroke}"/>
+              <DockPanel Margin="20,16">
+                <CheckBox x:Name="SetTray" DockPanel.Dock="Right" Style="{StaticResource Switch}" Click="Setting_Changed" VerticalAlignment="Center"/>
+                <StackPanel>
+                  <TextBlock Text="Rester dans la zone de notification à la fermeture" FontSize="14.5"/>
+                  <TextBlock Text="La croix range Prisme près de l'horloge au lieu de le quitter." FontSize="12.5" Foreground="{StaticResource Text3}" Margin="0,3,0,0"/>
+                </StackPanel>
+              </DockPanel>
+              <Border Height="1" Background="{StaticResource Stroke}"/>
+              <DockPanel Margin="20,16">
+                <CheckBox x:Name="SetMenu" DockPanel.Dock="Right" Style="{StaticResource Switch}" Click="Setting_Changed" VerticalAlignment="Center"/>
+                <StackPanel>
+                  <TextBlock Text="Menu clic droit « Convertir avec Prisme »" FontSize="14.5"/>
+                  <TextBlock Text="Sur Windows 11, il apparaît dans « Afficher plus d'options » (ou Maj + clic droit)." FontSize="12.5" Foreground="{StaticResource Text3}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+              </DockPanel>
+              <Border Height="1" Background="{StaticResource Stroke}"/>
+              <DockPanel Margin="20,16">
+                <CheckBox x:Name="SetClip" DockPanel.Dock="Right" Style="{StaticResource Switch}" Click="Setting_Changed" VerticalAlignment="Center"/>
+                <StackPanel>
+                  <TextBlock Text="Détecter les liens copiés" FontSize="14.5"/>
+                  <TextBlock Text="Un lien YouTube, X… copié est proposé automatiquement au téléchargement." FontSize="12.5" Foreground="{StaticResource Text3}" Margin="0,3,0,0"/>
+                </StackPanel>
+              </DockPanel>
+              <Border Height="1" Background="{StaticResource Stroke}"/>
+              <DockPanel Margin="20,16">
+                <CheckBox x:Name="SetNotify" DockPanel.Dock="Right" Style="{StaticResource Switch}" Click="Setting_Changed" VerticalAlignment="Center"/>
+                <StackPanel>
+                  <TextBlock Text="Notifications" FontSize="14.5"/>
+                  <TextBlock Text="Prévenir quand une conversion ou un téléchargement se termine." FontSize="12.5" Foreground="{StaticResource Text3}" Margin="0,3,0,0"/>
+                </StackPanel>
+              </DockPanel>
+            </StackPanel>
+          </Border>
+
+          <TextBlock Style="{StaticResource Section}" Text="DOSSIERS" Margin="2,26,0,10"/>
+          <Border Style="{StaticResource CardBox}" Padding="20,16">
+            <StackPanel>
+              <TextBlock Text="Fichiers convertis" FontSize="14.5"/>
+              <WrapPanel Margin="0,12,0,0">
+                <RadioButton x:Name="OutNext" Style="{StaticResource Chip}" GroupName="out" Content="À côté du fichier d'origine" Click="Setting_Changed"/>
+                <RadioButton x:Name="OutFixed" Style="{StaticResource Chip}" GroupName="out" Content="Dans un dossier précis" Click="OutFixed_Click"/>
+              </WrapPanel>
+              <DockPanel x:Name="OutDirRow" Margin="0,4,0,0">
+                <Button DockPanel.Dock="Right" Style="{StaticResource Btn}" Padding="14,7" FontSize="13" Content="Changer…" Click="ChangeOutDir_Click"/>
+                <TextBlock x:Name="OutDirText" VerticalAlignment="Center" Foreground="{StaticResource Text2}" FontSize="13" TextTrimming="CharacterEllipsis"/>
+              </DockPanel>
+              <Border Height="1" Background="{StaticResource Stroke}" Margin="-20,16"/>
+              <TextBlock Text="Téléchargements depuis un lien" FontSize="14.5"/>
+              <DockPanel Margin="0,10,0,0">
+                <Button DockPanel.Dock="Right" Style="{StaticResource Btn}" Padding="14,7" FontSize="13" Content="Changer…" Click="ChangeDlDir_Click"/>
+                <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Padding="7" Margin="0,0,6,0" Click="ResetDlDir_Click" ToolTip="Revenir au dossier par défaut (Téléchargements\Prisme)">
+                  <TextBlock Text="Par défaut" FontSize="12.5"/>
+                </Button>
+                <TextBlock x:Name="DlDirText2" VerticalAlignment="Center" Foreground="{StaticResource Text2}" FontSize="13" TextTrimming="CharacterEllipsis"/>
+              </DockPanel>
+            </StackPanel>
+          </Border>
+
+          <TextBlock Style="{StaticResource Section}" Text="MOTEURS" Margin="2,26,0,10"/>
+          <Border Style="{StaticResource CardBox}" Padding="20,16">
+            <StackPanel>
+              <DockPanel>
+                <Button DockPanel.Dock="Right" x:Name="UpdateBtn" Style="{StaticResource Btn}" Padding="14,7" FontSize="13" Content="Mettre à jour" Click="UpdateEngine_Click"/>
+                <StackPanel>
+                  <TextBlock Text="Téléchargement de vidéos (yt-dlp)" FontSize="14.5"/>
+                  <TextBlock x:Name="YtVersion" FontSize="12.5" Foreground="{StaticResource Text3}" Margin="0,3,0,0" Text="…"/>
+                </StackPanel>
+              </DockPanel>
+              <TextBlock Margin="0,14,0,0" FontSize="12.5" Foreground="{StaticResource Text3}" TextWrapping="Wrap"
+                         Text="Audio, vidéo et images : FFmpeg · Documents : Microsoft Office s'il est installé, sinon moteur LibreOffice intégré · PDF : PDFsharp et le moteur PDF de Windows. Tout fonctionne hors ligne, sans publicité ni envoi de fichiers sur Internet."/>
+            </StackPanel>
+          </Border>
+
+          <TextBlock Style="{StaticResource Section}" Text="MISES À JOUR" Margin="2,26,0,10"/>
+          <Border Style="{StaticResource CardBox}" Padding="0">
+            <StackPanel>
+              <DockPanel Margin="20,16">
+                <CheckBox x:Name="SetAutoUpdate" DockPanel.Dock="Right" Style="{StaticResource Switch}" Click="Setting_Changed" VerticalAlignment="Center"/>
+                <StackPanel>
+                  <TextBlock Text="Installer les mises à jour automatiquement" FontSize="14.5"/>
+                  <TextBlock Text="Prisme regarde sur GitHub plusieurs fois par jour et s'installe quand tu ne t'en sers pas (rangé près de l'horloge ou fermé). Tes réglages sont gardés." FontSize="12.5" Foreground="{StaticResource Text3}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+              </DockPanel>
+              <Border Height="1" Background="{StaticResource Stroke}"/>
+              <DockPanel Margin="20,14">
+                <Button x:Name="UpdateCheckBtn" DockPanel.Dock="Right" Style="{StaticResource Btn}" Padding="14,7" FontSize="13" Content="Vérifier maintenant" Click="UpdateCheck_Click" Margin="12,0,0,0"/>
+                <TextBlock x:Name="UpdateStatusText" VerticalAlignment="Center" FontSize="13" Foreground="{StaticResource Text2}" TextWrapping="Wrap"/>
+              </DockPanel>
+            </StackPanel>
+          </Border>
+
+          <TextBlock x:Name="AboutText" Margin="2,24,0,0" FontSize="12.5" Foreground="{StaticResource Text3}"/>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- voile de dépôt (glisser au-dessus de la fenêtre) -->
+      <Border x:Name="DropOverlay" Visibility="Collapsed" Background="#D90A0A12" IsHitTestVisible="False" Panel.ZIndex="20">
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+          <Grid Width="96" Height="96" HorizontalAlignment="Center">
+            <Border CornerRadius="26" Background="{StaticResource Spectrum}"/>
+            <Path Style="{StaticResource Icon}" Data="{StaticResource IcUpload}" Width="42" Height="42" Stroke="White" StrokeThickness="2.2"/>
+          </Grid>
+          <TextBlock x:Name="DropOverlayText" Text="Lâche pour ajouter" FontFamily="{StaticResource Display}" FontSize="22" FontWeight="SemiBold" Margin="0,20,0,0" HorizontalAlignment="Center"/>
+        </StackPanel>
+      </Border>
+    </Grid>
+  </Grid>
+</Window>
