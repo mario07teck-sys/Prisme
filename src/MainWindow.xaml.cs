@@ -39,7 +39,7 @@ public partial class MainWindow : Window
 
         var v = typeof(App).Assembly.GetName().Version;
         VersionText.Text = $"Version {v.Major}.{v.Minor}.{v.Build}";
-        AboutText.Text = $"Prisme {v.Major}.{v.Minor}.{v.Build} · gratuit, sans pub · © 2026 Marius";
+        AboutText.Text = $"Prisme {v.Major}.{v.Minor}.{v.Build} · gratuit, sans pub · © 2026 Mario Teck";
         LoadSettings();
         InitEditor();
         App.Current.UpdateChanged += () => Dispatcher.BeginInvoke(RefreshUpdate);

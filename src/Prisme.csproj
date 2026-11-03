@@ -12,10 +12,10 @@
     <AssemblyName>Prisme</AssemblyName>
     <ApplicationIcon>Assets\prisme.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.2.0</Version>
+    <Version>1.2.1</Version>
     <Product>Prisme</Product>
-    <Company>Marius</Company>
-    <Copyright>© 2026 Marius</Copyright>
+    <Company>Mario Teck</Company>
+    <Copyright>© 2026 Mario Teck</Copyright>
     <Description>Prisme — convertisseur de fichiers et téléchargeur de vidéos</Description>
     <!-- VLC : 64 bits seulement (Prisme est publié en win-x64) -->
     <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
