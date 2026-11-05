@@ -10,10 +10,8 @@ public static class Shell
     const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     static string Exe => Environment.ProcessPath;
 
-    /// <summary>Vrai pour la copie installée (%LOCALAPPDATA%\Programs\Prisme), faux pour une build de dev.</summary>
-    public static bool IsInstalledCopy => string.Equals(Path.GetDirectoryName(Exe),
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Prisme"),
-        StringComparison.OrdinalIgnoreCase);
+    /// <summary>Vrai pour la copie installée, quel que soit le dossier choisi (l'installeur y laisse son désinstalleur), faux pour une build de dev.</summary>
+    public static bool IsInstalledCopy => File.Exists(Path.Combine(Path.GetDirectoryName(Exe)!, "unins000.exe"));
 
     static IEnumerable<string> AllExts => Formats.AllExts;
 
