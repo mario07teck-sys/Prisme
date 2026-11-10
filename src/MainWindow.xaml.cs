@@ -265,6 +265,7 @@ public partial class MainWindow : Window
 
     void OpenJob_Click(object sender, RoutedEventArgs e) => App.Reveal(((Job)((FrameworkElement)sender).DataContext).Output);
     void CancelJob_Click(object sender, RoutedEventArgs e) => ((Job)((FrameworkElement)sender).DataContext).Cts.Cancel();
+    void RetryJob_Click(object sender, RoutedEventArgs e) => App.Current.Retry((Job)((FrameworkElement)sender).DataContext);
     void RemoveJob_Click(object sender, RoutedEventArgs e)
     {
         var j = (Job)((FrameworkElement)sender).DataContext;
@@ -287,6 +288,8 @@ public partial class MainWindow : Window
         SetClip.IsChecked = S.WatchClipboard;
         SetNotify.IsChecked = S.Notify;
         SetAutoUpdate.IsChecked = S.AutoUpdate;
+        SetSubs.IsChecked = S.DownloadSubs;
+        SetGpu.IsChecked = S.Gpu;
         OutNext.IsChecked = S.SaveNextToSource || !Directory.Exists(S.OutputDir);
         OutFixed.IsChecked = !OutNext.IsChecked;
         ShowDirs();
@@ -315,6 +318,8 @@ public partial class MainWindow : Window
             S.WatchClipboard = SetClip.IsChecked == true;
             S.Notify = SetNotify.IsChecked == true;
             S.AutoUpdate = SetAutoUpdate.IsChecked == true;
+            S.DownloadSubs = SetSubs.IsChecked == true;
+            S.Gpu = SetGpu.IsChecked == true;
             S.SaveNextToSource = OutNext.IsChecked == true;
             S.Save();
             ShowDirs();

@@ -24,7 +24,23 @@ public static class Downloader
         return Sites.Any(x => h == x || h.EndsWith("." + x));
     }
 
-    public static List<string> Args(string url, string mode, string outDir, string tempDir)
+    static readonly Regex PlaylistRx = new(@"youtube\.com/playlist\?|/sets/|/album/", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    /// <summary>Lien d'une liste entière (playlist YouTube, album SoundCloud ou Bandcamp) : chaque élément devient un téléchargement.
+    /// Une vidéo ouverte depuis une playlist (watch?v=…&amp;list=…) reste une seule vidéo.</summary>
+    public static bool IsPlaylist(string url) => PlaylistRx.IsMatch(url);
+
+    /// <summary>Les liens des éléments d'une liste, dans l'ordre.</summary>
+    public static async Task<List<string>> Expand(string url, CancellationToken ct)
+    {
+        var urls = new List<string>(); string lastErr = "";
+        await Engines.Run(Engines.YtDlp, new[] { "--flat-playlist", "--print", "url", "--encoding", "utf-8", url },
+            l => { if (IsUrl(l)) urls.Add(l.Trim()); }, l => { if (l.StartsWith("ERROR:")) lastErr = l; }, ct, Utf8Env);
+        if (urls.Count == 0) throw new Exception(lastErr.Length > 0 ? Friendly(lastErr) : "Liste vide ou privée");
+        return urls;
+    }
+
+    public static List<string> Args(string url, string mode, string outDir, string tempDir, bool subs = false)
     {
         var a = new List<string>
         {
@@ -40,20 +56,30 @@ public static class Downloader
         {   // MP4 lisible partout : on préfère le H.264 à résolution égale
             var res = mode is "1080" or "720" ? $"res:{mode}," : "res,";
             a.AddRange(new[] { "-f", "bv*+ba/b", "-S", res + "fps,vcodec:h264,acodec:m4a", "--merge-output-format", "mp4" });
+            // sous-titres écrits par l'auteur (pas les automatiques), dans la langue du PC et en anglais, rangés dans le MP4
+            if (subs) a.AddRange(new[] { "--embed-subs", "--sub-langs", $"{CultureInfo.CurrentUICulture.TwoLetterISOLanguageName}.*,en.*" });
         }
         a.Add(url);
         return a;
     }
 
-    public static async Task Run(Job job, string outDir)
+    public static async Task Run(Job job, Settings s)
     {
+        var outDir = s.DownloadDir;
         Directory.CreateDirectory(outDir);
+        await UpdateEngine(s); // au plus une fois par jour, même si Prisme reste ouvert des semaines
         var temp = Path.Combine(Path.GetTempPath(), "prisme-dl-" + Guid.NewGuid().ToString("N"));
         try
         {
             // yt-dlp travaille dans un dossier vide : sinon il réutiliserait (puis supprimerait, après -x)
             // un fichier du même nom déjà présent dans outDir
-            await RunIn(job, Path.Combine(temp, "out"), temp);
+            try { await RunIn(job, Path.Combine(temp, "out"), temp, s.DownloadSubs); }
+            catch (UnknownError) when (!job.Cts.IsCancellationRequested)
+            {   // erreur inconnue = souvent un site qui a changé : si une version plus récente de yt-dlp s'installe, un seul nouvel essai
+                if (!await UpdateEngine(s, force: true)) throw;
+                job.Output = null; job.Status = "Nouvel essai…";
+                await RunIn(job, Path.Combine(temp, "out"), temp, s.DownloadSubs);
+            }
             var dest = Formats.UniquePath(outDir, Path.GetFileNameWithoutExtension(job.Output!), Path.GetExtension(job.Output!).TrimStart('.'));
             File.Move(job.Output!, dest, true);
             job.Output = dest;
@@ -61,16 +87,16 @@ public static class Downloader
         finally { try { Directory.Delete(temp, true); } catch { } } // annulé ou échoué : pas de .part qui traînent
     }
 
-    static async Task RunIn(Job job, string outDir, string temp)
+    static async Task RunIn(Job job, string outDir, string temp, bool subs)
     {
         var vimeo = Regex.Match(job.Url, @"^https?://(?:www\.)?vimeo\.com/(\d+)(?:/(\w+))?", RegexOptions.IgnoreCase);
-        try { await YtDlp(job, Args(job.Url, job.DownloadMode, outDir, temp)); }
+        try { await YtDlp(job, Args(job.Url, job.DownloadMode, outDir, temp, subs)); }
         catch when (!job.Cts.IsCancellationRequested && vimeo.Success)
         {
             // vimeo.com exige souvent un compte ; le lecteur intégrable public, non
             var h = vimeo.Groups[2].Success ? "?h=" + vimeo.Groups[2].Value : "";
             job.Output = null;
-            await YtDlp(job, Args($"https://player.vimeo.com/video/{vimeo.Groups[1].Value}{h}", job.DownloadMode, outDir, temp));
+            await YtDlp(job, Args($"https://player.vimeo.com/video/{vimeo.Groups[1].Value}{h}", job.DownloadMode, outDir, temp, subs));
         }
         catch (Exception first) when (!job.Cts.IsCancellationRequested && IsX(job.Url))
         {
@@ -115,10 +141,15 @@ public static class Downloader
         return (mp4, name.Replace("%", "%%"));
     }
 
+    static readonly Dictionary<string, string> Utf8Env = new() { ["PYTHONIOENCODING"] = "utf-8", ["PYTHONUTF8"] = "1" };
+
+    /// <summary>Échec que Prisme ne sait pas expliquer : yt-dlp est peut-être périmé pour ce site.</summary>
+    sealed class UnknownError(string message) : Exception(message);
+
     static async Task YtDlp(Job job, List<string> args)
     {
         string lastErr = "";
-        var env = new Dictionary<string, string> { ["PYTHONIOENCODING"] = "utf-8", ["PYTHONUTF8"] = "1" };
+        var env = Utf8Env;
         var code = await Engines.Run(Engines.YtDlp, args, line =>
         {
             if (line.StartsWith("T|")) { job.Title = line[2..]; job.Status = "Téléchargement…"; return; }
@@ -131,7 +162,10 @@ public static class Downloader
         }, line => { if (line.StartsWith("ERROR:")) lastErr = line; }, job.Cts.Token, env);
 
         if (code != 0 || job.Output == null || !File.Exists(job.Output))
-            throw new Exception(Friendly(lastErr));
+        {
+            var msg = Friendly(lastErr);
+            throw lastErr.Length == 0 || msg == lastErr.Replace("ERROR: ", "") ? new UnknownError(msg) : new Exception(msg);
+        }
     }
 
     static string Friendly(string err)
@@ -150,15 +184,23 @@ public static class Downloader
         return string.IsNullOrWhiteSpace(e) ? "Le téléchargement a échoué" : e;
     }
 
-    /// <summary>Met yt-dlp à jour (les sites changent souvent). Silencieux, au plus une fois par jour.</summary>
-    public static async Task UpdateEngine(Settings s)
+    static readonly SemaphoreSlim UpdateLock = new(1); // une seule mise à jour à la fois ; les téléchargements attendent qu'elle finisse
+
+    /// <summary>Met yt-dlp à jour (les sites changent souvent). Silencieux, au plus une fois par jour sauf <paramref name="force"/>.
+    /// Renvoie vrai si une version plus récente vient d'être installée.</summary>
+    public static async Task<bool> UpdateEngine(Settings s, bool force = false)
     {
-        if ((DateTime.Now - s.LastEngineUpdate).TotalHours < 24) return;
+        await UpdateLock.WaitAsync();
         try
         {
-            await Engines.Run(Engines.YtDlp, new[] { "-U" }, null, null, CancellationToken.None);
+            if (!force && (DateTime.Now - s.LastEngineUpdate).TotalHours < 24) return false;
+            bool upToDate = false;
+            // hors ligne, yt-dlp sort avec un code d'erreur : rien n'est noté, on réessaiera au prochain téléchargement
+            if (await Engines.Run(Engines.YtDlp, new[] { "-U" }, l => upToDate |= l.Contains("is up to date"), null, CancellationToken.None) != 0) return false;
             s.LastEngineUpdate = DateTime.Now; s.Save();
+            return !upToDate;
         }
-        catch { /* hors ligne : on réessaiera au prochain lancement */ }
+        catch { return false; }
+        finally { UpdateLock.Release(); }
     }
 }

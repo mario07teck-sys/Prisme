@@ -34,6 +34,14 @@ if (-not $NoTest) {
   if ($p.ExitCode -ne 0) { throw "Autotest : $($p.ExitCode) échec(s), voir $env:TEMP\prisme-selftest.txt" }
 }
 
+# empreinte des moteurs : un Prisme installé avec la même peut prendre la mise à jour légère (sans moteurs)
+# yt-dlp est exclu : il se met à jour tout seul après installation
+$eng = Get-ChildItem "$root\publish\engines", "$root\publish\libvlc" -Recurse -File | Where-Object Name -ne 'yt-dlp.exe' | Sort-Object FullName |
+  ForEach-Object { $_.FullName.Substring($root.Length) + ':' + (Get-FileHash $_.FullName -Algorithm SHA256).Hash }
+$sha = [Security.Cryptography.SHA256]::Create()
+$enginesId = (-join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($eng -join "`n")) | ForEach-Object { $_.ToString('x2') })).Substring(0, 12)
+[IO.File]::WriteAllText("$root\publish\engines.id", $enginesId)
+
 Write-Host "-> Installeur"
 $iscc = @("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
   Where-Object { Test-Path $_ } | Select-Object -First 1
@@ -41,5 +49,11 @@ if (-not $iscc) { throw 'Inno Setup 6 introuvable : winget install JRSoftware.In
 & $iscc /Q "/DAppVersion=$version" "$root\installer\Prisme.iss"
 if ($LASTEXITCODE) { throw "Échec d'Inno Setup" }
 
-$setup = Get-Item "$root\dist\Prisme-Setup-$version.exe"
-Write-Host ("OK : {0} ({1:N0} Mo)" -f $setup.FullName, ($setup.Length / 1MB)) -ForegroundColor Green
+& $iscc /Q "/DAppVersion=$version" "/DEnginesId=$enginesId" "$root\installer\Prisme.iss"
+if ($LASTEXITCODE) { throw "Échec d'Inno Setup (mise à jour légère)" }
+
+foreach ($f in "Prisme-Setup-$version.exe", "Prisme-Update-$version-$enginesId.exe") {
+  $setup = Get-Item "$root\dist\$f"
+  Write-Host ("OK : {0} ({1:N0} Mo)" -f $setup.FullName, ($setup.Length / 1MB)) -ForegroundColor Green
+}
+Write-Host 'Publier les DEUX fichiers dans la release GitHub (le léger sert aux Prisme qui ont déjà ces moteurs).'

@@ -7,13 +7,16 @@ public enum JobState { Waiting, Running, Done, Error, Canceled }
 
 /// <summary>Retouche avant conversion. Extrait en secondes (End = 0 : jusqu'à la fin) ;
 /// recadrage en fractions de l'image (indépendant de sa résolution) ; taille en pixels (0 = automatique).</summary>
-public record Edit(double Start, double End, double CropX, double CropY, double CropW, double CropH, int Width, int Height)
+/// <remarks>Son et vidéo : rotation en degrés dans le sens des aiguilles (90, 180, 270), volume (1 = inchangé), vitesse (0,5 à 2).</remarks>
+public record Edit(double Start, double End, double CropX, double CropY, double CropW, double CropH, int Width, int Height,
+    int Rotate = 0, double Volume = 1, double Speed = 1)
 {
     public static readonly Edit None = new(0, 0, 0, 0, 1, 1, 0, 0);
     public bool Trims => Start > 0 || End > 0;
     public bool Crops => CropW < 0.9999 || CropH < 0.9999;
     public bool Resizes => Width > 0 || Height > 0;
-    public bool IsEmpty => !Trims && !Crops && !Resizes;
+    public bool Filters => Rotate != 0 || Volume != 1 || Speed != 1;
+    public bool IsEmpty => !Trims && !Crops && !Resizes && !Filters;
 
     /// <summary>Filtre FFmpeg du recadrage puis de la taille ("" si rien).</summary>
     public string ImageFilter()
@@ -30,7 +33,21 @@ public record Edit(double Start, double End, double CropX, double CropY, double 
         Trims ? $"✂ {Time(Start)} → {(End > 0 ? Time(End) : "fin")}" : null,
         Crops ? "recadrée" : null,
         Resizes ? (Width > 0 && Height > 0 ? $"{Width}×{Height}" : Width > 0 ? $"{Width} px de large" : $"{Height} px de haut") : null,
+        Rotate != 0 ? $"↻ {Rotate}°" : null,
+        Volume != 1 ? $"volume {Volume * 100:0} %" : null,
+        Speed != 1 ? $"vitesse ×{Speed:0.##}" : null,
     }.Where(s => s != null));
+
+    /// <summary>Filtres FFmpeg vidéo et audio de la rotation, de la vitesse et du volume ("" si rien).</summary>
+    public (string Video, string Audio) MediaFilters()
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        var v = new List<string>(); var a = new List<string>();
+        if (Rotate == 90) v.Add("transpose=1"); else if (Rotate == 180) v.Add("hflip,vflip"); else if (Rotate == 270) v.Add("transpose=2");
+        if (Speed != 1) { v.Add(string.Format(inv, "setpts=PTS/{0:0.###}", Speed)); a.Add(string.Format(inv, "atempo={0:0.###}", Speed)); }
+        if (Volume != 1) a.Add(string.Format(inv, "volume={0:0.###}", Volume));
+        return (string.Join(",", v), string.Join(",", a));
+    }
 
     /// <summary>1:05, 1:02:03 ou 0:07.5 (dixièmes seulement s'il y en a).</summary>
     public static string Time(double s)
@@ -61,6 +78,7 @@ public class Job : INotifyPropertyChanged
 {
     public List<string> Inputs { get; init; } = new();
     public Target Target { get; init; }
+    public string TargetId { get; init; }      // format demandé (« same », « merge-mp3 »…) : sert à relancer la tâche
     public string Url { get; init; }           // téléchargement
     public string DownloadMode { get; init; }   // best | 1080 | 720 | mp3
     public CancellationTokenSource Cts { get; } = new();
@@ -85,7 +103,8 @@ public class Job : INotifyPropertyChanged
     public bool IsActive => State is JobState.Waiting or JobState.Running;
     public bool IsDone => State == JobState.Done;
     public bool IsError => State is JobState.Error or JobState.Canceled;
-    public string Badge => Target?.Label ?? (DownloadMode == "mp3" ? "MP3" : "MP4");
+    public string BadgeText { get; init; }      // tâche relue de l'historique : le format n'est plus connu que par son nom
+    public string Badge => BadgeText ?? Target?.Label ?? (DownloadMode == "mp3" ? "MP3" : "MP4");
 
     public event PropertyChangedEventHandler PropertyChanged;
     void OnChanged(string n) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));

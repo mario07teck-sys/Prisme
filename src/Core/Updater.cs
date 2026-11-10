@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -12,7 +14,15 @@ public static class Updater
     public const string Repo = "mario07teck-sys/Prisme";
     public const string Page = "https://github.com/" + Repo + "/releases/latest";
 
-    public record Release(Version Version, string Url, long Size, string Sha256);
+    public record Release(Version Version, string Url, long Size, string Sha256, string Name);
+
+    /// <summary>Empreinte des moteurs installés (engines.id, écrit par build.ps1) : si elle est identique, la mise à jour légère sans moteurs suffit.</summary>
+    public static string EnginesId { get; } = ReadEnginesId();
+    static string ReadEnginesId()
+    {
+        try { var id = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "engines.id")).Trim(); return id.Length > 0 ? id : null; }
+        catch { return null; }
+    }
 
     static readonly HttpClient Http = CreateClient();
     static HttpClient CreateClient()
@@ -34,58 +44,79 @@ public static class Updater
         using var resp = await Http.SendAsync(req, ct);
         if (!resp.IsSuccessStatusCode) return null;
         using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
-        return Parse(doc.RootElement);
+        return Parse(doc.RootElement, EnginesId);
     }
 
-    internal static Release Parse(JsonElement rel)
+    /// <summary>Choisit la mise à jour légère « Prisme-Update-x.y.z-&lt;enginesId&gt;.exe » si les moteurs installés sont les mêmes, sinon l'installeur complet.</summary>
+    internal static Release Parse(JsonElement rel, string enginesId)
     {
         var tag = rel.TryGetProperty("tag_name", out var t) ? t.GetString() : "";
         if (!Version.TryParse(Regex.Match(tag ?? "", @"\d+\.\d+(\.\d+)?").Value, out var v)) return null;
         if (!rel.TryGetProperty("assets", out var assets)) return null;
+        Release full = null;
         foreach (var a in assets.EnumerateArray())
         {
-            var name = a.GetProperty("name").GetString() ?? "";
+            var name = Path.GetFileName(a.GetProperty("name").GetString() ?? "");
             var url = a.GetProperty("browser_download_url").GetString() ?? "";
+            var light = enginesId != null && name.StartsWith("Prisme-Update-", StringComparison.OrdinalIgnoreCase)
+                        && name.EndsWith($"-{enginesId}.exe", StringComparison.OrdinalIgnoreCase);
+            var setup = name.StartsWith("Prisme-Setup", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
             // seul un installeur servi par GitHub lui-même est accepté
-            if (!name.StartsWith("Prisme-Setup", StringComparison.OrdinalIgnoreCase) || !name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-                || !Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme != "https" || u.Host != "github.com") continue;
+            if (!(light || setup) || !Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme != "https" || u.Host != "github.com") continue;
             var digest = a.TryGetProperty("digest", out var dg) && dg.ValueKind == JsonValueKind.String ? dg.GetString() : null;
             var sha = digest != null && digest.StartsWith("sha256:") ? digest[7..].ToLowerInvariant() : null;
-            return new Release(Norm(v), url, a.GetProperty("size").GetInt64(), sha);
+            var r = new Release(Norm(v), url, a.GetProperty("size").GetInt64(), sha, name);
+            if (light) return r;
+            full ??= r;
         }
-        return null;
+        return full;
     }
 
     public static bool IsNewer(Release r) => r != null && r.Version > Current;
 
-    /// <summary>Télécharge l'installeur (reprend celui déjà téléchargé s'il est complet) et vérifie taille et empreinte.</summary>
+    /// <summary>Télécharge l'installeur et vérifie taille et empreinte. Connexion lente ou coupée : le morceau déjà reçu (.part) est gardé
+    /// et le téléchargement reprend là où il s'était arrêté, ici ou à la prochaine vérification.</summary>
     public static async Task<string> Download(Release r, Action<double> progress, CancellationToken ct)
     {
         Directory.CreateDirectory(Dir);
-        var path = Path.Combine(Dir, $"Prisme-Setup-{r.Version}.exe");
+        var path = Path.Combine(Dir, r.Name);
         if (File.Exists(path) && Verify(path, r)) return path;
         var part = path + ".part";
-        try
+        for (int attempt = 1; ; attempt++)
         {
-            using (var resp = await Http.GetAsync(r.Url, HttpCompletionOption.ResponseHeadersRead, ct))
-            {
-                resp.EnsureSuccessStatusCode();
-                await using var src = await resp.Content.ReadAsStreamAsync(ct);
-                await using var dst = File.Create(part);
-                var buf = new byte[1 << 16]; long done = 0; int n;
-                while ((n = await src.ReadAsync(buf, ct)) > 0)
-                {
-                    await dst.WriteAsync(buf.AsMemory(0, n), ct);
-                    done += n; progress?.Invoke(r.Size > 0 ? done * 100.0 / r.Size : 0);
-                }
-            }
-            if (!Verify(part, r)) throw new Exception("Installeur téléchargé incomplet ou modifié");
-            File.Move(part, path, true);
+            try { await Fetch(r, part, progress, ct); break; }
+            catch (Exception) when (attempt < 10 && !ct.IsCancellationRequested) { await Task.Delay(TimeSpan.FromSeconds(30), ct); }
         }
-        finally { try { File.Delete(part); } catch { } }
-        foreach (var old in Directory.GetFiles(Dir, "Prisme-Setup-*.exe").Where(f => !f.Equals(path, StringComparison.OrdinalIgnoreCase)))
+        if (!Verify(part, r)) { try { File.Delete(part); } catch { } throw new Exception("Installeur téléchargé incomplet ou modifié"); }
+        File.Move(part, path, true);
+        foreach (var old in Directory.GetFiles(Dir).Where(f => !f.Equals(path, StringComparison.OrdinalIgnoreCase)))
             try { File.Delete(old); } catch { }
         return path;
+    }
+
+    static async Task Fetch(Release r, string part, Action<double> progress, CancellationToken ct)
+    {
+        long done = File.Exists(part) ? new FileInfo(part).Length : 0;
+        if (done > r.Size) { File.Delete(part); done = 0; }
+        if (done == r.Size) return;
+        using var req = new HttpRequestMessage(HttpMethod.Get, r.Url);
+        if (done > 0) req.Headers.Range = new RangeHeaderValue(done, null);
+        using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        resp.EnsureSuccessStatusCode();
+        // serveur qui renvoie tout le fichier au lieu de la suite : on repart de zéro
+        if (resp.StatusCode != HttpStatusCode.PartialContent || resp.Content.Headers.ContentRange?.From != done) done = 0;
+        await using var src = await resp.Content.ReadAsStreamAsync(ct);
+        await using var dst = new FileStream(part, done > 0 ? FileMode.Append : FileMode.Create, FileAccess.Write);
+        using var stall = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var buf = new byte[1 << 16]; int n;
+        while (true)
+        {
+            stall.CancelAfter(TimeSpan.FromMinutes(2)); // plus rien ne vient depuis 2 min : on coupe et on reprend
+            if ((n = await src.ReadAsync(buf, stall.Token)) == 0) break;
+            await dst.WriteAsync(buf.AsMemory(0, n), ct);
+            done += n; progress?.Invoke(r.Size > 0 ? done * 100.0 / r.Size : 0);
+        }
+        if (done < r.Size) throw new IOException("Téléchargement interrompu"); // connexion fermée trop tôt : on reprendra
     }
 
     static bool Verify(string file, Release r)

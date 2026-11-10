@@ -20,7 +20,12 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
 OutputDir=..\dist
+#ifdef EnginesId
+; mise à jour légère (/DEnginesId=…) : seulement Prisme.exe, les moteurs déjà installés sont gardés
+OutputBaseFilename=Prisme-Update-{#AppVersion}-{#EnginesId}
+#else
 OutputBaseFilename=Prisme-Setup-{#AppVersion}
+#endif
 SetupIconFile=..\src\Assets\prisme.ico
 UninstallDisplayIcon={app}\Prisme.exe
 UninstallDisplayName=Prisme
@@ -44,11 +49,15 @@ Name: "autostart"; Description: "Démarrer Prisme avec Windows (dans la zone de 
 Name: "desktop";   Description: "Créer une icône sur le Bureau"; GroupDescription: "Raccourcis :"
 
 [Files]
+#ifdef EnginesId
+Source: "..\publish\*"; Excludes: "\engines\*,\libvlc\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+#else
 Source: "..\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [InstallDelete]
-; anciens moteurs remplacés à chaque mise à jour
+; anciens moteurs remplacés à chaque mise à jour complète
 Type: filesandordirs; Name: "{app}\engines\office"
+#endif
 
 [Icons]
 Name: "{userprograms}\Prisme"; Filename: "{app}\Prisme.exe"; Comment: "Convertir des fichiers et télécharger des vidéos"
@@ -81,6 +90,14 @@ function InitializeSetup(): Boolean;
 begin
   FreshInstall := not RegKeyExists(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{6E3B7A51-4C2D-4F8E-9B61-5A7C3D2E1F90}_is1');
   Result := True;
+#ifdef EnginesId
+  // la mise à jour légère n'a pas les moteurs : elle ne sert qu'à un Prisme déjà installé
+  if FreshInstall then
+  begin
+    SuppressibleMsgBox('Ce fichier est une mise à jour : installe d''abord Prisme avec Prisme-Setup-{#AppVersion}.exe.', mbError, MB_OK, IDOK);
+    Result := False;
+  end;
+#endif
 end;
 
 function IsFreshInstall(): Boolean;

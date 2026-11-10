@@ -1,4 +1,4 @@
-namespace Prisme.Core;
+﻿namespace Prisme.Core;
 
 public enum Kind { Audio, Video, Image, Pdf, Text, Sheet, Slides, Drawing, Subtitle, Unknown }
 
@@ -42,6 +42,8 @@ public static class Formats
         new("mp4", "MP4", "mp4", "Le plus compatible"),
         new("mp4-small", "MP4 léger", "mp4", "Compresse la vidéo"),
         new("mp4-hevc", "MP4 H.265", "mp4", "Même qualité, 2× plus léger"),
+        new("mp4-20mo", "≤ 20 Mo", "mp4", "MP4 en pièce jointe d'e-mail"),
+        new("mp4-10mo", "≤ 10 Mo", "mp4", "MP4 pour Discord, messageries"),
         new("mkv", "MKV", "mkv"),
         new("webm", "WEBM", "webm", "Pour le web"),
         new("mov", "MOV", "mov", "Apple"),
@@ -49,6 +51,7 @@ public static class Formats
         new("wmv", "WMV", "wmv", "Windows Media"),
         new("mpg", "MPEG", "mpg", "Vieux lecteurs, DVD"),
         new("gif", "GIF", "gif", "Animation"),
+        new("mp4-anim", "Animation WhatsApp", "mp4", "Vidéo muette et légère"),
         new("webp", "WEBP animé", "webp", "Animation légère"),
         new("mp3", "MP3", "mp3", "Extraire le son"),
         new("wav", "WAV", "wav", "Extraire le son"),
@@ -71,6 +74,7 @@ public static class Formats
     {
         new("mp4", "MP4", "mp4", "Animation → vidéo"),
         new("webm", "WEBM", "webm", "Animation → vidéo"),
+        new("mp4-anim", "Animation WhatsApp", "mp4", "Vidéo muette et légère"),
     };
     static readonly Target[] PdfTargets =
     {

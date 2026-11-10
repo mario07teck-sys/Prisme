@@ -32,15 +32,22 @@ public static class Converter
             (Kind.Pdf, _) => Office(job, first, outDir, name, ct, id == "pptx" ? "impress_pdf_import" : "writer_pdf_import"),
             (_, "png-pages" or "jpg-pages") => OfficeToImages(job, first, outDir, name, ct),
             _ when Formats.IsOffice(kind) => Office(job, first, outDir, name, ct),
-            _ => Ffmpeg(job, first, Formats.UniquePath(outDir, name, job.Target.Ext), ct),
+            _ => Ffmpeg(job, first, Formats.UniquePath(outDir, name, job.Target.Ext), s, ct),
         };
     }
 
     // ---------- audio / vidéo / image : FFmpeg ----------
 
     /// <summary>Arguments FFmpeg pour une conversion simple (public pour l'autotest).</summary>
-    public static List<string> FfmpegArgs(string input, string targetId, string output, Kind kind)
+    public static List<string> FfmpegArgs(string input, string targetId, string output, Kind kind, Settings s = null)
     {
+        int gifFps = Math.Clamp(s?.GifFps ?? 12, 1, 50);
+        var (gifBox, gifPal, gifDither) = (s?.GifQuality) switch
+        {   // taille maxi (une vidéo verticale aussi), couleurs, finesse du tramage
+            "light" => (360, "max_colors=128:", 5),
+            "high" => (720, "", 3),
+            _ => (540, "", 5),
+        };
         var a = new List<string> { "-hide_banner", "-nostdin", "-y", "-i", input };
         const string white = "[0:v]split[a][b];[a]format=rgb24,drawbox=c=white:t=fill[bg];[bg][b]overlay=format=auto,format=yuvj444p";
         string[] x = (kind, targetId) switch
@@ -67,6 +74,9 @@ public static class Converter
                 "-crf", "28", "-preset", "slow", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart" },
             (Kind.Video, "mp4-hevc") => new[] { "-map", "0:V:0", "-map", "0:a?", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-c:v", "libx265", "-crf", "26", "-preset", "medium",
                 "-tag:v", "hvc1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart" },
+            // taille visée : débit et définition calculés dans Ffmpeg() d'après la durée, encodage en deux passes
+            (Kind.Video, "mp4-20mo" or "mp4-10mo") => new[] { "-map", "0:V:0", "-map", "0:a?", "-c:v", "libx264", "-preset", "medium",
+                "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart" },
             (Kind.Video, "wmv") => new[] { "-sn", "-c:v", "wmv2", "-b:v", "6M", "-ac", "2", "-c:a", "wmav2", "-b:a", "192k" },
             (Kind.Video, "mpg") => new[] { "-sn", "-c:v", "mpeg2video", "-q:v", "3", "-c:a", "mp2", "-b:a", "224k" },
             (Kind.Video, "webp") => new[] { "-vf", "fps=15,scale='min(640,iw)':-1", "-c:v", "libwebp", "-quality", "75", "-loop", "0", "-an" },
@@ -76,7 +86,13 @@ public static class Converter
             (Kind.Video, "mov") => new[] { "-map", "0:V:0", "-map", "0:a?", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-c:v", "libx264", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k" },
             // AVI/MPG/WMV n'ont pas de piste « par défaut » : sans -map, FFmpeg garde la vraie vidéo (pas la pochette) et la piste audio par défaut
             (Kind.Video, "avi") => new[] { "-sn", "-c:v", "mpeg4", "-q:v", "3", "-c:a", "libmp3lame", "-q:a", "2" },
-            (Kind.Video, "gif") => new[] { "-filter_complex", "fps=12,scale='min(640,iw)':-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse", "-loop", "0" },
+            // palette des zones qui bougent + tramage régulier : ~5× plus léger qu'avant (1.2.1) à l'œil égal
+            (Kind.Video, "gif") => new[] { "-filter_complex", $"fps={gifFps},scale='min({gifBox},iw)':'min({gifBox},ih)':force_original_aspect_ratio=decrease:flags=lanczos,split[a][b];" +
+                $"[a]palettegen={gifPal}stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale={gifDither}:diff_mode=rectangle", "-loop", "0" },
+            // WhatsApp PC envoie un .gif comme une photo fixe : une petite vidéo muette passe, elle
+            (Kind.Video or Kind.Image, "mp4-anim") => new[] { "-map", "0:V:0", "-an", "-sn", "-vf",
+                "scale='min(720,iw)':'min(720,ih)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                "-c:v", "libx264", "-crf", "26", "-preset", "slow", "-pix_fmt", "yuv420p", "-movflags", "+faststart" },
             (Kind.Image, "png") => new[] { "-frames:v", "1", "-update", "1" },
             (Kind.Image, "jpg") => new[] { "-filter_complex", white, "-frames:v", "1", "-update", "1", "-q:v", "2" },
             (Kind.Image, "bmp") => new[] { "-filter_complex", white.Replace(",format=yuvj444p", ",format=bgr24"), "-frames:v", "1", "-update", "1" },
@@ -107,51 +123,72 @@ public static class Converter
 
     static readonly Regex DurationRx = new(@"Duration: (\d+):(\d\d):(\d\d(?:\.\d+)?)", RegexOptions.Compiled);
 
-    static async Task Ffmpeg(Job job, string input, string output, CancellationToken ct)
+    // annulé ou échoué n'importe où (même pendant la lecture de la durée) : pas de fichier vide laissé dans le dossier
+    static async Task Ffmpeg(Job job, string input, string output, Settings settings, CancellationToken ct)
+    {
+        try { await FfmpegCore(job, input, output, settings, ct); }
+        catch { TryDelete(output); throw; }
+    }
+
+    static async Task FfmpegCore(Job job, string input, string output, Settings settings, CancellationToken ct)
     {
         double total = 0; string lastErr = "";
         var k = Formats.KindOf(input);
         var edit = job.EditOf(input);
-        job.Indeterminate = k == Kind.Subtitle || (k == Kind.Image && job.Target.Id is not ("mp4" or "webm"));
+        job.Indeterminate = k == Kind.Subtitle || (k == Kind.Image && job.Target.Id is not ("mp4" or "webm" or "mp4-anim"));
         var temps = new List<string>();
         try
         {
             if (k == Kind.Image) input = await PrepareImage(input, edit, job.Target.Id != "png", temps, ct);
         }
         catch { TryDelete(output); temps.ForEach(TryDelete); throw; }
-        var args = FfmpegArgs(input, job.Target.Id, output, k);
-        double len = 0;
-        if (edit.Trims && k is Kind.Audio or Kind.Video)
+        var args = FfmpegArgs(input, job.Target.Id, output, k, settings);
+        double len = 0, sp = 1; // sp : vitesse choisie, la sortie dure total / sp
+        bool av = k is Kind.Audio or Kind.Video;
+        void DropSubs()
         {
-            var full = await Duration(input, ct);
-            var end = edit.End > 0 && (full <= 0 || edit.End < full) ? edit.End : full;
-            len = end - edit.Start;
-            if (len <= 0) { TryDelete(output); throw new Exception("L'extrait choisi est vide : le début est après la fin du fichier"); }
-            if (job.Target.Id == "m4r") len = Math.Min(len, 40);
-            args.InsertRange(args.IndexOf("-i"), new[] { "-ss", Inv(edit.Start) }); // avant -i : saut direct, précis quand on réencode
-            args.InsertRange(args.IndexOf("-progress"), new[] { "-t", Inv(len) }); // après celui de la sonnerie (40 s) : c'est le dernier qui compte
+            int s0 = args.IndexOf("0:s?"); if (s0 < 0) return;
+            args.RemoveRange(s0 - 1, s0 + 1 < args.Count && args[s0 + 1] == "-c:s" ? 4 : 2);
+            args.InsertRange(args.IndexOf("-progress"), new[] { "-sn" });
+        }
+        if (av && !edit.IsEmpty)
+        {
             int c = args.IndexOf("copy");
-            if (c > 0 && args[c - 1] == "-c") // MKV en copie : une copie ne se coupe qu'aux images clés et le son copié ignore la coupe
+            if (c > 0 && args[c - 1] == "-c") // MKV en copie : une copie ne se coupe qu'aux images clés, ignore la coupe du son et n'accepte aucun filtre
             {
                 args.RemoveRange(c - 1, 2);
                 int v = args.IndexOf("0:v"); if (v > 0) args[v] = "0:V"; // réencodée, une pochette deviendrait une 2e vidéo cassée
                 args.InsertRange(c - 1, new[] { "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-c:a", "aac", "-b:a", "384k", "-c:s", "copy" });
             }
-            int s0 = args.IndexOf("0:s?");
-            if (s0 > 0 && job.Target.Ext == "mkv") args.InsertRange(args.IndexOf("-progress"), new[] { "-avoid_negative_ts", "disabled" }); // sinon tout glisse d'une demi-seconde
-            else if (s0 > 0)
-            {   // shortcut: sous-titres retirés d'un extrait MP4/MOV/WebM (FFmpeg les décale) ; les extraire et les recaler à part si on en a besoin
-                args.RemoveRange(s0 - 1, args[s0 + 1] == "-c:s" ? 4 : 2);
-                args.InsertRange(args.IndexOf("-progress"), new[] { "-sn" });
-            }
+        }
+        if (av && edit.Filters)
+        {
+            var (vf, af) = edit.MediaFilters();
+            if (vf.Length > 0 && k == Kind.Video && !args.Contains("-vn")) AddFilter(args, "-vf", vf);
+            if (af.Length > 0 && !args.Contains("-an") && job.Target.Ext is not ("gif" or "webp")) AddFilter(args, "-af", af);
+            sp = edit.Speed;
+            if (sp != 1) DropSubs(); // shortcut: sous-titres retirés d'une vidéo accélérée ou ralentie, ils ne suivraient plus ; les recaler si on en a besoin
+        }
+        if (edit.Trims && av)
+        {
+            var full = await Duration(input, ct);
+            var end = edit.End > 0 && (full <= 0 || edit.End < full) ? edit.End : full;
+            len = end - edit.Start;
+            if (len <= 0) { TryDelete(output); throw new Exception("L'extrait choisi est vide : le début est après la fin du fichier"); }
+            if (job.Target.Id == "m4r") len = Math.Min(len, 40 * sp);
+            args.InsertRange(args.IndexOf("-i"), new[] { "-ss", Inv(edit.Start) }); // avant -i : saut direct, précis quand on réencode
+            args.InsertRange(args.IndexOf("-progress"), new[] { "-t", Inv(len / sp) }); // après celui de la sonnerie (40 s) : c'est le dernier qui compte
+            if (args.Contains("0:s?") && job.Target.Ext == "mkv") args.InsertRange(args.IndexOf("-progress"), new[] { "-avoid_negative_ts", "disabled" }); // sinon tout glisse d'une demi-seconde
+            else DropSubs(); // shortcut: sous-titres retirés d'un extrait MP4/MOV/WebM (FFmpeg les décale) ; les extraire et les recaler à part si on en a besoin
             total = len;
         }
         if (k == Kind.Audio && job.Target.Id == "mp4" && (len > 0 ? len : await Duration(input, ct)) is > 0 and var d)
-            args.InsertRange(args.IndexOf("-movflags"), new[] { "-t", Inv(d) }); // -shortest seul laisse ~35 s d'image en trop
+            args.InsertRange(args.IndexOf("-movflags"), new[] { "-t", Inv(d / sp) }); // -shortest seul laisse ~35 s d'image en trop
+        double pBase = 0, pPart = 1; // deux passes : la première remplit la barre jusqu'à 50 %
         void OnOut(string line)
         {
             if (line.StartsWith("out_time_us=") && total > 0 && long.TryParse(line[12..], out var us))
-                job.Progress = us / 1e6 / total * 100;
+                job.Progress = pBase + pPart * us / 1e6 / (total / sp) * 100;
         }
         void OnErr(string line)
         {
@@ -162,7 +199,42 @@ public static class Converter
             if (line.Trim().Length > 0) lastErr = line.Trim();
         }
         int code;
-        try { code = await Engines.Run(Engines.Ffmpeg, args, OnOut, OnErr, ct); }
+        try
+        {
+            if (job.Target.Id is "mp4-20mo" or "mp4-10mo")
+            {
+                int mo = job.Target.Id == "mp4-20mo" ? 20 : 10;
+                if (total <= 0) total = await Duration(input, ct);
+                if (total <= 0) throw new Exception("Durée de la vidéo inconnue : impossible de viser une taille");
+                double budget = mo * 8000 * 0.92 / (total / sp); // kbit/s, marge pour l'enveloppe MP4 (et les « Mo » qui sont des Mio)
+                int ak = budget > 1000 ? 128 : 64;
+                int vk = (int)Math.Min(8000, budget - ak); // une vidéo courte n'a pas besoin de remplir toute la place
+                if (vk < 150) throw new Exception($"Vidéo trop longue pour tenir dans {mo} Mo : garde un extrait (onglet Retoucher) ou choisis « MP4 léger »");
+                int side = vk >= 2500 ? 1080 : vk >= 1200 ? 720 : vk >= 600 ? 480 : 360;
+                // le petit côté est plafonné : une vidéo verticale garde sa netteté ; jamais agrandie, dimensions paires
+                AddFilter(args, "-vf", $"scale='if(gte(iw,ih),-2,trunc(min({side},iw)/2)*2)':'if(gte(iw,ih),trunc(min({side},ih)/2)*2,-2)'", first: false);
+                args.InsertRange(args.IndexOf("-movflags"), new[] { "-b:v", $"{vk}k", "-maxrate", $"{vk * 3 / 2}k", "-bufsize", $"{vk * 2}k", "-b:a", $"{ak}k" });
+                var passLog = Path.Combine(Path.GetTempPath(), $"prisme-pass-{Guid.NewGuid():N}");
+                temps.AddRange(new[] { passLog + "-0.log", passLog + "-0.log.mbtree" });
+                var pass1 = args.Take(args.Count - 1).Concat(new[] { "-pass", "1", "-passlogfile", passLog, "-an", "-f", "null", "NUL" }).ToList();
+                pPart = 0.5;
+                if (await Engines.Run(Engines.Ffmpeg, pass1, OnOut, OnErr, ct) != 0) throw new Exception(Friendly(lastErr));
+                pBase = 50;
+                args.InsertRange(args.IndexOf("-progress"), new[] { "-pass", "2", "-passlogfile", passLog });
+            }
+            List<string> cpu = null; // réglage « carte graphique » : même commande avec son encodeur, et retour au processeur si elle échoue
+            if (settings?.Gpu == true && k is Kind.Video or Kind.Image && await GpuEncoder() is { } enc)
+            {
+                cpu = args.ToList();
+                if (!UseGpu(args, enc)) cpu = null;
+            }
+            code = await Engines.Run(Engines.Ffmpeg, args, OnOut, OnErr, ct);
+            if (code != 0 && cpu != null)
+            {
+                args = cpu; job.Progress = 0;
+                code = await Engines.Run(Engines.Ffmpeg, args, OnOut, OnErr, ct);
+            }
+        }
         catch { TryDelete(output); throw; }
         finally { temps.ForEach(TryDelete); }
         int s = args.IndexOf("0:s?");
@@ -183,6 +255,49 @@ public static class Converter
     }
 
     static string Inv(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
+
+    /// <summary>Ajoute un filtre à la chaîne -vf / -af existante (ou en tête du graphe du GIF, qui commence sans étiquette), sinon crée l'option.</summary>
+    static void AddFilter(List<string> a, string opt, string f, bool first = true)
+    {
+        int i = a.IndexOf(opt);
+        if (i < 0 && opt == "-vf" && (i = a.IndexOf("-filter_complex")) >= 0) { a[i + 1] = f + "," + a[i + 1]; return; }
+        if (i >= 0) a[i + 1] = first ? f + "," + a[i + 1] : a[i + 1] + "," + f;
+        else a.InsertRange(a.IndexOf("-progress"), new[] { opt, f });
+    }
+
+    static Task<string> _gpuEnc;
+    /// <summary>Encodeur de la carte graphique qui marche vraiment sur ce PC (essai d'une image), ou null. Cherché une seule fois.</summary>
+    static Task<string> GpuEncoder() => _gpuEnc ??= Task.Run(async () =>
+    {
+        foreach (var e in new[] { "nvenc", "qsv", "amf" }) // NVIDIA, Intel, AMD
+            try
+            {
+                if (await Engines.Run(Engines.Ffmpeg, new[] { "-hide_banner", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25:duration=0.2",
+                        "-c:v", "h264_" + e, "-f", "null", "NUL" }, null, null, CancellationToken.None) == 0) return e;
+            }
+            catch { }
+        return null;
+    });
+
+    /// <summary>Remplace libx264 / libx265 et leur réglage de qualité par l'encodeur de la carte graphique. Faux s'il n'y a rien à remplacer
+    /// (taille visée en deux passes, formats sans H.264) : la commande reste telle quelle.</summary>
+    internal static bool UseGpu(List<string> a, string enc)
+    {
+        bool hevc = a.Contains("libx265");
+        int c = a.IndexOf(hevc ? "libx265" : "libx264"), q = a.IndexOf("-crf");
+        if (c < 0 || q < 0) return false;
+        a[c] = (hevc ? "hevc_" : "h264_") + enc;
+        var crf = a[q + 1];
+        a.RemoveRange(q, 2);
+        a.InsertRange(q, enc switch
+        {
+            "qsv" => new[] { "-global_quality", crf },
+            "nvenc" => new[] { "-rc", "vbr", "-cq", crf, "-b:v", "0" },
+            _ => new[] { "-rc", "cqp", "-qp_i", crf, "-qp_p", crf, "-qp_b", crf },
+        });
+        int p = a.IndexOf("-preset"); if (p > 0) a.RemoveRange(p, 2); // les préréglages de libx264 n'existent pas ici
+        return true;
+    }
 
     /// <summary>Image prête pour la conversion : photo HEIC recollée en PNG (si <paramref name="decodeTiles"/> ou retouche),
     /// puis recadrage et taille appliqués. Les fichiers temporaires sont ajoutés à <paramref name="temps"/>.</summary>
@@ -364,7 +479,7 @@ public static class Converter
 
         var ext = job.Target.Ext;
         uint n = pdf.PageCount;
-        string folder = null;
+        string folder = null, path = null;
         if (n > 1) folder = Formats.UniqueDir(outDir, $"{name} - pages");
         try
         {
@@ -377,14 +492,14 @@ public static class Converter
                     DestinationWidth = (uint)Math.Min(page.Size.Width * 2.5, 5000),
                     BitmapEncoderId = ext == "jpg" ? Windows.Graphics.Imaging.BitmapEncoder.JpegEncoderId : Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId,
                 };
-                var path = n > 1 ? Path.Combine(folder, $"page {(i + 1).ToString().PadLeft(n.ToString().Length, '0')}.{ext}") : Formats.UniquePath(outDir, name, ext);
+                path = n > 1 ? Path.Combine(folder, $"page {(i + 1).ToString().PadLeft(n.ToString().Length, '0')}.{ext}") : Formats.UniquePath(outDir, name, ext);
                 await using (var fs = File.Create(path))
                     await page.RenderToStreamAsync(fs.AsRandomAccessStream(), opts);
                 job.Progress = (i + 1) * 100.0 / n;
                 job.Output = folder ?? path;
             }
         }
-        catch { if (folder != null) try { Directory.Delete(folder, true); } catch { } else TryDelete(job.Output); throw; }
+        catch { if (folder != null) try { Directory.Delete(folder, true); } catch { } else TryDelete(path); throw; }
     }
 
     // ---------- documents bureautiques (Office s'il est là pour le PDF, sinon moteur LibreOffice embarqué) ----------
@@ -406,11 +521,16 @@ public static class Converter
         input = Path.GetFullPath(input);
         var output = Formats.UniquePath(outDir, name, job.Target.Ext);
         job.Indeterminate = true;
-        await OfficeLock.WaitAsync(ct);
+        bool locked = false;
         try
         {
+            await OfficeLock.WaitAsync(ct); locked = true; // annulé dans la file : la sortie réservée est supprimée aussi
             job.Status = "Conversion…";
-            if (job.Target.Id == "pdf" && await Task.Run(() => TryMsOffice(input, output)) && new FileInfo(output).Length > 0) { job.Output = output; return; }
+            // PDF : rendu d'Office ; PDF → Word : Word remet le texte en paragraphes, LibreOffice le laisse dans des cadres figés
+            bool msOffice = job.Target.Id == "pdf" || (Formats.KindOf(input) == Kind.Pdf && job.Target.Id == "docx");
+            bool viaOffice = msOffice && await Task.Run(() => TryMsOffice(input, output));
+            ct.ThrowIfCancellationRequested(); // Word ne s'interrompt pas : l'annulation est appliquée à son retour
+            if (viaOffice && new FileInfo(output).Length > 0) { job.Output = output; return; }
             if (Formats.KindOf(input) == Kind.Pdf && job.Target.Id == "txt")
             {   // l'import PDF place le texte dans des cadres, ignorés par l'export texte : on passe par Word
                 var docx = Path.Combine(Path.GetTempPath(), $"prisme-{Guid.NewGuid():N}.docx");
@@ -430,7 +550,7 @@ public static class Converter
             job.Output = output;
         }
         catch { TryDelete(output); throw; }
-        finally { OfficeLock.Release(); }
+        finally { if (locked) OfficeLock.Release(); }
     }
 
     /// <summary>PDF scanné → texte, avec la reconnaissance de caractères intégrée à Windows (rien à installer).</summary>
@@ -469,10 +589,13 @@ public static class Converter
         using (var st = entry.Open()) x = System.Xml.Linq.XDocument.Load(st);
         System.Xml.Linq.XNamespace w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
         System.Xml.Linq.XNamespace mc = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+        // chaque paragraphe garde son propre texte ; celui d'un cadre qu'il contient sort à part, juste après
         var lines = x.Descendants(w + "p")
-            .Where(p => !p.Descendants(w + "p").Any() && !p.Ancestors(mc + "Fallback").Any())
-            .Select(p => string.Concat(p.Descendants().Where(e => e.Name == w + "t" || e.Name == w + "tab")
-                                                   .Select(e => e.Name == w + "tab" ? "\t" : e.Value)).TrimEnd());
+            .Where(p => !p.Ancestors(mc + "Fallback").Any())
+            .Select(p => (p, own: p.Descendants().Where(e => (e.Name == w + "t" || e.Name == w + "tab" || e.Name == w + "br" || e.Name == w + "cr")
+                                                          && e.Ancestors(w + "p").First() == p).ToList()))
+            .Where(q => q.own.Count > 0 || !q.p.Descendants(w + "p").Any())
+            .Select(q => string.Concat(q.own.Select(e => e.Name == w + "tab" ? "\t" : e.Name == w + "t" ? e.Value : "\r\n")).TrimEnd());
         return Regex.Replace(string.Join("\r\n", lines), @"(\r\n){3,}", "\r\n\r\n").Trim() + "\r\n";
     }
 
@@ -533,7 +656,8 @@ public static class Converter
         finally { try { Directory.Delete(tmp, true); } catch { } }
     }
 
-    /// <summary>Word / Excel / PowerPoint par automation, s'ils sont installés : meilleur rendu PDF possible.</summary>
+    /// <summary>Word / Excel / PowerPoint par automation, s'ils sont installés : meilleur rendu PDF possible.
+    /// Un PDF en entrée est ouvert par Word et enregistré en .docx.</summary>
     static bool TryMsOffice(string input, string output)
     {
         var k = Formats.KindOf(input);
@@ -541,8 +665,12 @@ public static class Converter
         string app = k == Kind.Sheet ? "Excel.Application" : k == Kind.Slides ? "PowerPoint.Application" : "Word.Application";
         var type = Type.GetTypeFromProgID(app);
         if (type == null) return false;
+        string exe = k == Kind.Sheet ? "EXCEL" : k == Kind.Slides ? "POWERPNT" : "WINWORD";
+        var before = System.Diagnostics.Process.GetProcessesByName(exe).Select(p => p.Id).ToHashSet();
 
         bool ok = false;
+        // Office écrit dans un fichier temporaire : s'il se débloque après le délai, il n'écrase pas le résultat de LibreOffice
+        var tmp = Path.Combine(Path.GetTempPath(), $"prisme-office-{Guid.NewGuid():N}{Path.GetExtension(output)}");
         var t = new Thread(() =>
         {
             dynamic o = null;
@@ -552,19 +680,21 @@ public static class Converter
                 if (app == "Word.Application")
                 {
                     o.DisplayAlerts = 0;
-                    var d = o.Documents.Open(input, false, true, false);
-                    d.ExportAsFixedFormat(output, 17); d.Close(false);
+                    var d = o.Documents.Open(input, false, true, false); // ConfirmConversions = false : pas de question pour un PDF
+                    if (k == Kind.Pdf) d.SaveAs2(tmp, 16); // wdFormatDocumentDefault (.docx)
+                    else d.ExportAsFixedFormat(tmp, 17);
+                    d.Close(false);
                 }
                 else if (app == "Excel.Application")
                 {
                     o.DisplayAlerts = false;
                     var w = o.Workbooks.Open(input, 0, true);
-                    w.ExportAsFixedFormat(0, output); w.Close(false);
+                    w.ExportAsFixedFormat(0, tmp); w.Close(false);
                 }
                 else
                 {
                     var p = o.Presentations.Open(input, -1, 0, 0); // lecture seule, sans fenêtre
-                    p.SaveAs(output, 32); p.Close();
+                    p.SaveAs(tmp, 32); p.Close();
                 }
                 ok = true;
             }
@@ -576,8 +706,17 @@ public static class Converter
             }
         });
         t.SetApartmentState(ApartmentState.STA);
+        t.IsBackground = true; // un Office bloqué ne doit pas garder Prisme en vie après sa fermeture
         t.Start();
-        if (!t.Join(TimeSpan.FromMinutes(3))) return false; // Office bloqué (boîte de dialogue invisible) : on passe à LibreOffice
-        return ok;
+        if (!t.Join(TimeSpan.FromMinutes(3)))
+        {   // Office bloqué (boîte de dialogue invisible) : on passe à LibreOffice, et l'Office lancé pour l'occasion est fermé de force.
+            // Seulement s'il est né pendant la conversion et n'a aucune fenêtre : jamais celui que l'utilisateur a ouvert.
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName(exe))
+                try { if (!before.Contains(p.Id) && p.MainWindowHandle == IntPtr.Zero) p.Kill(); } catch { }
+            return false;
+        }
+        if (!ok || !File.Exists(tmp)) { TryDelete(tmp); return false; }
+        File.Move(tmp, output, true);
+        return true;
     }
 }

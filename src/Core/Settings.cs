@@ -14,6 +14,10 @@ public class Settings
     public bool WatchClipboard { get; set; } = true;
     public bool Notify { get; set; } = true;
     public bool AutoUpdate { get; set; } = true; // installe seule les nouvelles versions publiées sur GitHub
+    public int GifFps { get; set; } = 12;
+    public string GifQuality { get; set; } = "normal"; // light, normal, high
+    public bool DownloadSubs { get; set; }        // sous-titres de l'auteur rangés dans le MP4 téléchargé
+    public bool Gpu { get; set; }                 // encodage vidéo par la carte graphique : plus rapide, fichiers un peu plus lourds
     public DateTime LastEngineUpdate { get; set; }
     public string LastVersion { get; set; } = "";
 

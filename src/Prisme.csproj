@@ -12,7 +12,7 @@
     <AssemblyName>Prisme</AssemblyName>
     <ApplicationIcon>Assets\prisme.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.2.4</Version>
+    <Version>1.2.6</Version>
     <Product>Prisme</Product>
     <Company>Mario Teck</Company>
     <Copyright>© 2026 Mario Teck</Copyright>

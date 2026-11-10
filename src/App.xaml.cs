@@ -73,7 +73,8 @@ public partial class App : Application
 
         CreateTray();
         _win = new MainWindow();
-        _debounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+        LoadHistory(); // après la fenêtre : elle affiche l'en-tête « Activité » quand la liste se remplit
+        _debounce =new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
         _debounce.Tick += (_, _) => { _debounce.Stop(); FlushPending(); };
         StartPipeServer();
 
@@ -125,7 +126,7 @@ public partial class App : Application
             _updateSetup = await Task.Run(() => Updater.Download(r, p =>
             {
                 if ((int)p == last) return; last = (int)p;
-                Dispatcher.BeginInvoke(() => SetUpdate($"Téléchargement de la version {r.Version}… {last} %"));
+                Dispatcher.BeginInvoke(() => SetUpdate($"Téléchargement de la version {r.Version} ({r.Size / 1048576.0:0} Mo)… {last} %"));
             }, CancellationToken.None));
             SetUpdate(Settings.AutoUpdate
                 ? $"Version {r.Version} prête : elle s'installera dès que Prisme sera rangé ou fermé."
@@ -260,7 +261,7 @@ public partial class App : Application
         {
             var job = new Job
             {
-                Inputs = g, Target = Formats.Find(g[0], id), Edits = edits,
+                Inputs = g, Target = Formats.Find(g[0], id), TargetId = id, Edits = edits,
                 Title = g.Count > 1 ? $"{Path.GetFileName(g[0])} + {g.Count - 1} autre{(g.Count > 2 ? "s" : "")}" : Path.GetFileName(g[0]),
             };
             Conversions.Insert(0, job);
@@ -272,7 +273,65 @@ public partial class App : Application
     {
         var job = new Job { Url = url.Trim(), DownloadMode = mode, Title = url.Trim() };
         Downloads.Insert(0, job);
-        _ = RunJob(job, DlSlots, "Analyse du lien…", () => Downloader.Run(job, Settings.DownloadDir));
+        if (Downloader.IsPlaylist(job.Url))
+        {   // une liste : sa tâche ne fait que la lire, puis laisse la place à un téléchargement par élément
+            _ = RunJob(job, DlSlots, "Lecture de la liste…", async () =>
+            {
+                var urls = await Downloader.Expand(job.Url, job.Cts.Token);
+                Downloads.Remove(job);
+                foreach (var u in urls) StartDownload(u, mode);
+            });
+            return;
+        }
+        _ = RunJob(job, DlSlots, "Analyse du lien…", () => Downloader.Run(job, Settings));
+    }
+
+    // ---------- historique (tâches terminées, gardées d'une session à l'autre) ----------
+
+    record Past(string Title, string Output, string Badge, bool Download);
+    static string HistoryPath => Path.Combine(Settings.Dir, "history.json");
+    const int HistoryMax = 100; // par liste
+
+    /// <summary>Relit les tâches terminées dont le fichier existe encore. « Effacer les terminées » et la croix d'une tâche les retirent aussi du fichier.</summary>
+    void LoadHistory()
+    {
+        try
+        {
+            foreach (var p in System.Text.Json.JsonSerializer.Deserialize<List<Past>>(File.ReadAllText(HistoryPath)) ?? new())
+                if (File.Exists(p.Output) || Directory.Exists(p.Output))
+                    (p.Download ? Downloads : Conversions).Add(new Job
+                        { Title = p.Title, BadgeText = p.Badge, Output = p.Output, Progress = 100, State = JobState.Done, Status = "Terminé" });
+        }
+        catch { /* pas encore d'historique, ou fichier abîmé : on repart de zéro */ }
+        Conversions.CollectionChanged += (_, e) => { if (e.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Add) SaveHistory(); };
+        Downloads.CollectionChanged += (_, e) => { if (e.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Add) SaveHistory(); };
+    }
+
+    void SaveHistory()
+    {
+        try
+        {
+            var all = new[] { (Conversions, false), (Downloads, true) }.SelectMany(l => l.Item1.Where(j => j.IsDone && j.Output != null)
+                .Take(HistoryMax).Select(j => new Past(j.Title, j.Output, j.Badge, l.Item2))).ToList();
+            Directory.CreateDirectory(Settings.Dir);
+            File.WriteAllText(HistoryPath, System.Text.Json.JsonSerializer.Serialize(all));
+        }
+        catch (Exception ex) { Log("historique : " + ex); }
+    }
+
+    /// <summary>Relance une tâche échouée ou annulée, à la même place dans la liste.</summary>
+    public void Retry(Job job)
+    {
+        var list = Downloads.Contains(job) ? Downloads : Conversions;
+        int at = list.IndexOf(job);
+        if (at < 0 || job.IsActive) return;
+        var inputs = job.Inputs.Where(File.Exists).ToList();
+        if (job.Url == null && inputs.Count < job.Inputs.Count) { job.Detail = "Fichier introuvable : déplacé ou supprimé ?"; return; } // pas d'assemblage incomplet
+        list.RemoveAt(at);
+        int before = list.Count;
+        if (job.Url != null) StartDownload(job.Url, job.DownloadMode);
+        else StartConversions(inputs, job.TargetId ?? job.Target.Id, job.Edits);
+        if (list.Count == before + 1 && at > 0) list.Move(0, at); // la nouvelle tâche reprend la place de l'ancienne
     }
 
     async Task RunJob(Job job, SemaphoreSlim slots, string runningStatus, Func<Task> work)
@@ -288,7 +347,7 @@ public partial class App : Application
                 await work();
                 job.Progress = 100; job.Indeterminate = false;
                 job.State = JobState.Done; job.Status = "Terminé";
-                NotifyDone(job);
+                if (job.Output != null) { SaveHistory(); NotifyDone(job); } // sans fichier : la tâche qui a lu une liste
             }
             finally { slots.Release(); }
         }
@@ -390,12 +449,16 @@ public partial class App : Application
         Shutdown(0);
     }
 
+    static readonly object LogLock = new();
     public static void Log(string msg)
     {
-        try
+        lock (LogLock) try
         {
             Directory.CreateDirectory(Settings.Dir);
-            File.AppendAllText(Path.Combine(Settings.Dir, "prisme.log"), $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {msg}\n");
+            var path = Path.Combine(Settings.Dir, "prisme.log");
+            // au-delà de 1 Mo, l'ancien journal est gardé à côté (un seul) et on repart de zéro
+            if (new FileInfo(path) is { Exists: true, Length: > 1_000_000 }) File.Move(path, Path.Combine(Settings.Dir, "prisme.old.log"), true);
+            File.AppendAllText(path,$"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {msg}\n");
         }
         catch { }
     }

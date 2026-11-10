@@ -148,8 +148,35 @@ public static class SelfTest
             Check(Math.Abs(Dur(await Probe(subCut2)) - 1.5) < 0.25, "extrait MKV → MP4 (sans sous-titres décalés), 1,5 s : la vidéo s'arrête à 3 s");
         Check((await Probe("soustitre.mp4")).Contains("Subtitle") && (await Probe("soustitre.webm")).Contains("Subtitle"), "mkv → mp4/webm : sous-titres conservés");
 
+        // texte d'un docx : paragraphe qui porte un cadre (texte des deux gardé), saut de ligne manuel
+        var docx = Path.Combine(dir, "cadre.docx");
+        using (var z = System.IO.Compression.ZipFile.Open(docx, System.IO.Compression.ZipArchiveMode.Create))
+        using (var st = new StreamWriter(z.CreateEntry("word/document.xml").Open()))
+            st.Write("""<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Avant</w:t><w:br/><w:t>après</w:t></w:r><w:r><w:txbxContent><w:p><w:r><w:t>Cadre</w:t></w:r></w:p></w:txbxContent></w:r></w:p></w:body></w:document>""");
+        var dt = Converter.DocxText(docx);
+        Check(dt.Contains("Avant\r\naprès") && dt.Contains("Cadre"), $"texte d'un docx : cadre et saut de ligne ({dt.Trim().Replace("\r\n", " | ")})");
+
+        // taille visée : 2 min de vidéo bruitée (dure à compresser) doivent tenir dans 10 Mo sans gaspiller la place
+        await Gen("long.mp4", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=25:duration=120,noise=alls=30:allf=t", "-f", "lavfi", "-i", "sine=duration=120",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest");
+        await Try("long.mp4", new() { Path.Combine(dir, "long.mp4") }, "mp4-10mo");
+        var fit = Path.Combine(dir, "long (2).mp4");
+        if (File.Exists(fit))
+        {
+            long size = new FileInfo(fit).Length; var pr = await Probe(Path.GetFileName(fit));
+            Check(size <= 10L * 1000 * 1000 && size > 6L * 1000 * 1000 && pr.Contains("Audio:") && Math.Abs(Dur(pr) - 120) < 1,
+                  $"vidéo de 2 min → ≤ 10 Mo : {size / 1000 / 1000.0:0.0} Mo, son conservé");
+        }
+        await Gen("trop-long.mp4", "-f", "lavfi", "-i", "testsrc2=size=160x90:rate=5:duration=900", "-c:v", "libx264", "-preset", "ultrafast");
+        var tooLong = new Job { Inputs = new() { Path.Combine(dir, "trop-long.mp4") }, Target = Formats.Find("a.mp4", "mp4-10mo") };
+        try { await Converter.Run(tooLong, s); Check(false, "15 min → 10 Mo : refus attendu"); }
+        catch (Exception ex) { Check(ex.Message.Contains("trop longue") && !File.Exists(Path.Combine(dir, "trop-long (2).mp4")), "15 min → 10 Mo : refusé proprement, sans fichier vide"); }
+
         // --- mises à jour : lecture d'une release GitHub ---
-        static Updater.Release Rel(string json) => Updater.Parse(System.Text.Json.JsonDocument.Parse(json).RootElement);
+        static Updater.Release Rel(string json, string engines = null) => Updater.Parse(System.Text.Json.JsonDocument.Parse(json).RootElement, engines);
+        const string both = """{"tag_name":"v9.4.1","assets":[{"name":"Prisme-Setup-9.4.1.exe","browser_download_url":"https://github.com/a/b/Prisme-Setup-9.4.1.exe","size":300},{"name":"Prisme-Update-9.4.1-abc123.exe","browser_download_url":"https://github.com/a/b/Prisme-Update-9.4.1-abc123.exe","size":30}]}""";
+        Check(Rel(both, "abc123")?.Name == "Prisme-Update-9.4.1-abc123.exe" && Rel(both, "fff999")?.Name == "Prisme-Setup-9.4.1.exe" && Rel(both)?.Size == 300,
+              "mise à jour : légère si mêmes moteurs, complète sinon");
         var good = Rel("""{"tag_name":"v9.4.1","assets":[{"name":"notes.txt","browser_download_url":"https://github.com/x/y/notes.txt","size":1},{"name":"Prisme-Setup-9.4.1.exe","browser_download_url":"https://github.com/mario07teck-sys/Prisme/releases/download/v9.4.1/Prisme-Setup-9.4.1.exe","size":123,"digest":"sha256:ABCD"}]}""");
         Check(good is { Size: 123, Sha256: "abcd" } && good.Version == new Version(9, 4, 1) && Updater.IsNewer(good), "mise à jour : release lue");
         Check(Rel("""{"tag_name":"v9.9.9","assets":[{"name":"Prisme-Setup-9.9.9.exe","browser_download_url":"https://evil.example/Prisme-Setup.exe","size":1}]}""") == null,
@@ -178,8 +205,49 @@ public static class SelfTest
                 var d = Dur(await Probe(o));
                 Check(Math.Abs(d - 1.5) < 0.25, $"extrait 0,5 s → 2 s de {src} en {id} : {d:0.00} s ({Path.GetFileName(o)})");
             }
+        (s.GifFps, s.GifQuality) = (8, "light");
+        if (await TryEdit("film.mp4", "gif", cut) is { } gif8)
+        {
+            var pr = await Probe(gif8);
+            var fps = System.Text.RegularExpressions.Regex.Match(pr, @"([\d.]+) fps").Groups[1].Value; // GIF : délais en centièmes, 8 i/s ≈ 8,33
+            Check(double.TryParse(fps, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var f) && f is > 7.5 and < 8.6
+                  && pr.Contains("360x20"), $"GIF réglé à 8 images/s, léger (360 px) : {fps} fps");
+        }
+        (s.GifFps, s.GifQuality) = (12, "normal");
+        if (await TryEdit("film.mp4", "mp4-anim", cut) is { } wa)
+        {
+            var pr = await Probe(wa);
+            Check(!pr.Contains("Audio:") && Math.Abs(Dur(pr) - 1.5) < 0.25, "extrait → Animation WhatsApp : muet, 1,5 s");
+        }
         if (await TryEdit("son.wav", "same", new Edit(2, 0, 0, 0, 1, 1, 0, 0)) is { } tail)
             Check(Math.Abs(Dur(await Probe(tail)) - 1) < 0.25, "extrait de 2 s jusqu'à la fin");
+        // rotation, vitesse, volume (1.2.6) : film.mp4 fait 640×360 et dure 3 s
+        if (await TryEdit("film.mp4", "same", Edit.None with { Rotate = 90 }) is { } rot)
+            Check((await Probe(rot)).Contains("360x640"), "rotation de 90° d'une vidéo (360x640 attendu)");
+        if (await TryEdit("impair.mkv", "same", Edit.None with { Rotate = 270, Volume = 0.5 }) is { } rotMkv)
+            Check((await Probe(rotMkv)).Contains("360x640"), "rotation d'un MKV (copie impossible, réencodé) : 360x640 attendu");
+        if (await TryEdit("film.mp4", "same", Edit.None with { Speed = 2 }) is { } fast)
+        {
+            var pr = await Probe(fast);
+            Check(Math.Abs(Dur(pr) - 1.5) < 0.25 && pr.Contains("Audio:"), $"vitesse ×2 : 3 s deviennent 1,5 s, son gardé ({Dur(pr):0.00} s)");
+        }
+        if (await TryEdit("film.mp4", "gif", cut with { Speed = 2, Rotate = 90 }) is { } fastGif)
+            Check(Math.Abs(Dur(await Probe(fastGif)) - 0.75) < 0.2, "extrait de 1,5 s en ×2 vers GIF : 0,75 s");
+        if (await TryEdit("son.wav", "mp3", Edit.None with { Speed = 0.5, Volume = 2 }) is { } slow)
+            Check(Math.Abs(Dur(await Probe(slow)) - 6) < 0.3, "son ralenti ×0,5 et plus fort : 3 s deviennent 6 s");
+        // carte graphique : commande réécrite, et conversion réussie qu'il y ait une carte compatible ou non (retour au processeur)
+        var gpuArgs = Converter.FfmpegArgs("a.mkv", "mp4-hevc", "b.mp4", Kind.Video);
+        Check(Converter.UseGpu(gpuArgs, "qsv") && gpuArgs.Contains("hevc_qsv") && gpuArgs.Contains("-global_quality") && !gpuArgs.Contains("-crf") && !gpuArgs.Contains("-preset")
+              && !Converter.UseGpu(Converter.FfmpegArgs("a.mkv", "mp4-10mo", "b.mp4", Kind.Video), "qsv"), "carte graphique : commande réécrite, taille visée laissée au processeur");
+        s.Gpu = true;
+        if (await TryEdit("film.mp4", "mp4-hevc", Edit.None) is { } gpu)
+        {
+            var pr = await Probe(gpu);
+            Check(pr.Contains("Video: hevc") && Math.Abs(Dur(pr) - 3) < 0.25, "conversion avec le réglage « carte graphique »");
+        }
+        s.Gpu = false;
+        Check(Downloader.IsPlaylist("https://www.youtube.com/playlist?list=PLx") && Downloader.IsPlaylist("https://soundcloud.com/a/sets/b")
+              && !Downloader.IsPlaylist("https://www.youtube.com/watch?v=abc&list=PLx"), "détection des playlists");
         // photo 800×600 : moitié droite (400×600), ramenée à 200×300
         if (await TryEdit("photo.jpg", "same", new Edit(0, 0, 0.5, 0, 0.5, 1, 200, 300)) is { } crop)
             Check((await Probe(crop)).Contains("200x300"), "recadrage + taille d'une photo (200x300 attendu)");

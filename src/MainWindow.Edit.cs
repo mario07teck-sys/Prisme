@@ -110,6 +110,15 @@ public partial class MainWindow
 
     // ---------- un fichier ----------
 
+    void EdClose_Click(object sender, RoutedEventArgs e)
+    {
+        _edPath = null; // les chargements encore en cours voient qu'un autre « fichier » a été choisi et s'arrêtent
+        ShowEditMode(mix: null);
+        if (_mp != null) { _mp.Stop(); _mp.Media = null; } // VLC lâche le fichier : il peut être déplacé ou supprimé
+        EdPic.Source = null; _imW = _imH = 0;
+        EdError.Visibility = Visibility.Collapsed;
+    }
+
     async void LoadSingle(string path)
     {
         EdPause(); _edTimer.Stop();
@@ -121,6 +130,9 @@ public partial class MainWindow
         EdInfo.Text = ""; EdError.Visibility = Visibility.Collapsed;
         EdMedia.Visibility = Vis(kind != Kind.Image);
         EdImage.Visibility = Vis(kind == Kind.Image);
+        EdGif.Visibility = Vis(kind == Kind.Video);
+        foreach (var rb in EdGifFps.Children.OfType<RadioButton>()) rb.IsChecked = (string)rb.Tag == S.GifFps.ToString();
+        foreach (var rb in EdGifQuality.Children.OfType<RadioButton>()) rb.IsChecked = (string)rb.Tag == S.GifQuality;
         var same = Formats.Find(path, "same");
         bool keeps = Formats.TargetsFor(path).All(t => t.Id != same.Id); // pas proposé = c'est le format d'origine
         EdTargets.ItemsSource = new[] { Formats.Same(keeps ? $"Reste en {same.Label}" : $"En {same.Label}") }
@@ -128,9 +140,26 @@ public partial class MainWindow
         if (kind == Kind.Image) await LoadImage(path); else await LoadMedia(path, kind == Kind.Video);
     }
 
+    int _edRot; double _edVol = 1, _edSpeed = 1;
+
+    /// <summary>Rotation, volume, vitesse (étiquette « rot:90 », « vol:1.5 », « spd:2 »). L'aperçu suit le volume et la vitesse, pas la rotation.</summary>
+    void EdFx_Click(object sender, RoutedEventArgs e)
+    {
+        var tag = ((string)((FrameworkElement)sender).Tag).Split(':');
+        var v = double.Parse(tag[1], System.Globalization.CultureInfo.InvariantCulture);
+        if (tag[0] == "rot") _edRot = (int)v; else if (tag[0] == "vol") _edVol = v; else _edSpeed = v;
+        if (_mp != null) { _mp.Volume = (int)(_edVol * 100); _mp.SetRate((float)_edSpeed); }
+        EdError.Visibility = Visibility.Collapsed;
+    }
+
     async Task LoadMedia(string path, bool video)
     {
         _edDur = _edA = _edB = _edPos = 0; _edPending = -1; _edSel = false;
+        _edRot = 0; _edVol = _edSpeed = 1;
+        if (_mp != null) { _mp.Volume = 100; _mp.SetRate(1); }
+        EdRot.Visibility = Vis(video);
+        foreach (var rb in new[] { EdRot, EdVol, EdSpd }.SelectMany(p => p.Children.OfType<RadioButton>()))
+            rb.IsChecked = (string)rb.Tag is "rot:0" or "vol:1" or "spd:1";
         EdScreen.Height = video ? 320 : 150;
         _edVideo = video;
         // la vidéo VLC est une fenêtre à part, rien ne se dessine par-dessus : on la réduit à 1 pixel tant que l'anneau tourne
@@ -512,7 +541,8 @@ public partial class MainWindow
     Edit BuildEdit()
     {
         if (Formats.KindOf(_edPath) != Kind.Image)
-            return _edDur <= 0 ? Edit.None : new Edit(_edA < 0.05 ? 0 : _edA, _edB >= _edDur - 0.05 ? 0 : _edB, 0, 0, 1, 1, 0, 0);
+            return (_edDur <= 0 ? Edit.None : new Edit(_edA < 0.05 ? 0 : _edA, _edB >= _edDur - 0.05 ? 0 : _edB, 0, 0, 1, 1, 0, 0))
+                with { Rotate = _edVideo ? _edRot : 0, Volume = _edVol, Speed = _edSpeed };
         if (_imW == 0) throw new Exception("L'image n'est pas encore chargée.");
         if (!int.TryParse(EdW.Text, out var w) || !int.TryParse(EdH.Text, out var h) || w <= 0 || h <= 0 || w > 16384 || h > 16384)
             throw new Exception("Taille invalide : largeur et hauteur en pixels, entre 1 et 16384.");
@@ -520,6 +550,13 @@ public partial class MainWindow
         return Full
             ? new Edit(0, 0, 0, 0, 1, 1, resize ? w : 0, resize ? h : 0)
             : new Edit(0, 0, _crop.X, _crop.Y, _crop.Width, _crop.Height, resize ? w : 0, resize ? h : 0);
+    }
+
+    void EdGif_Click(object sender, RoutedEventArgs e)
+    {
+        var tag = (string)((FrameworkElement)sender).Tag;
+        if (int.TryParse(tag, out var fps)) S.GifFps = fps; else S.GifQuality = tag;
+        try { S.Save(); } catch (Exception ex) { App.Log(ex.ToString()); }
     }
 
     void EdSave_Click(object sender, RoutedEventArgs e)
@@ -532,7 +569,7 @@ public partial class MainWindow
         {
             EdError.Text = Formats.KindOf(_edPath) == Kind.Image
                 ? "Rien n'a changé : trace un cadre ou change la taille d'abord."
-                : "Rien n'a changé : déplace les poignées blanches de la frise pour choisir l'extrait.";
+                : "Rien n'a changé : déplace les poignées blanches de la frise pour choisir l'extrait, ou choisis une rotation, un volume, une vitesse.";
             EdError.Visibility = Visibility.Visible; return;
         }
         EdError.Visibility = Visibility.Collapsed;
