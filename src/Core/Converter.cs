@@ -81,6 +81,9 @@ public static class Converter
             (Kind.Video, "mpg") => new[] { "-sn", "-c:v", "mpeg2video", "-q:v", "3", "-c:a", "mp2", "-b:a", "224k" },
             (Kind.Video, "webp") => new[] { "-vf", "fps=15,scale='min(640,iw)':-1", "-c:v", "libwebp", "-quality", "75", "-loop", "0", "-an" },
             (Kind.Video, "mkv") => new[] { "-map", "0:v", "-map", "0:a?", "-c", "copy" },
+            // film dont la TV ne lit pas le son (DTS, TrueHD) : image copiée telle quelle, son refait en Dolby Digital, 5.1 au plus
+            // shortcut: toutes les pistes son sont refaites, même celles déjà lisibles ; ne refaire que les DTS/TrueHD si la perte gêne
+            (Kind.Video, "mkv-tv") => new[] { "-map", "0:v", "-map", "0:a?", "-c", "copy", "-c:a", "ac3", "-af", "aformat=channel_layouts=5.1|stereo|mono" },
             (Kind.Video, "webm") => new[] { "-map", "0:V:0", "-map", "0:a?", "-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0",
                 "-row-mt", "1", "-deadline", "good", "-cpu-used", "4", "-ac", "2", "-c:a", "libopus", "-b:a", "128k" },
             (Kind.Video, "mov") => new[] { "-map", "0:V:0", "-map", "0:a?", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-c:v", "libx264", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k" },
@@ -117,7 +120,7 @@ public static class Converter
     {
         "mp4" or "mp4-small" or "mp4-hevc" or "mov" => "mov_text",
         "webm" => "webvtt",
-        "mkv" => "", // copiés tels quels avec le reste
+        "mkv" or "mkv-tv" => "", // copiés tels quels avec le reste
         _ => null,
     };
 

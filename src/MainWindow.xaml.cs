@@ -141,12 +141,14 @@ public partial class MainWindow : Window
             };
             var n = paths.Count > 1 ? $"{label}S ({paths.Count})" : label;
             var targets = Formats.TargetsFor(paths);
-            if (g.Key == Kind.Audio && paths.Count > 1) targets.Add(new Target("assemble", "Assembler", "", "En un seul fichier, à la suite"));
-            return new TargetGroup(groups.Count > 1 ? $"CONVERTIR {n} EN" : "CONVERTIR EN", paths, targets);
+            if (g.Key == Kind.Audio && paths.Count > 1) targets.Add(new Target("assemble", "Assembler", "", "En un seul fichier, à la suite", Formats.Other));
+            return new TargetGroup(groups.Count > 1 ? $"CONVERTIR {n} EN" : "CONVERTIR EN", paths,
+                targets.GroupBy(t => t.Family).Select(f => new TargetFamily(f.Key, f.ToList())).ToList());
         }).ToList();
     }
 
-    public record TargetGroup(string Header, List<string> Paths, List<Target> Targets);
+    public record TargetGroup(string Header, List<string> Paths, List<TargetFamily> Families);
+    public record TargetFamily(string Name, List<Target> Targets);
 
     void DropZone_Click(object sender, RoutedEventArgs e)
     {

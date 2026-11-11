@@ -146,6 +146,12 @@ public static class SelfTest
         }
         if (await TryEdit("soustitre.mkv", "mp4", new Edit(1.5, 3.5, 0, 0, 1, 1, 0, 0)) is { } subCut2)
             Check(Math.Abs(Dur(await Probe(subCut2)) - 1.5) < 0.25, "extrait MKV → MP4 (sans sous-titres décalés), 1,5 s : la vidéo s'arrête à 3 s");
+        // film au son DTS 5.1 → « MKV pour TV » : son en Dolby Digital, image copiée sans réencodage
+        await Gen("dts.mkv", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=25:duration=2", "-f", "lavfi", "-i", "sine=duration=2",
+            "-af", "pan=5.1(side)|FL=c0|FR=c0|FC=c0|LFE=c0|SL=c0|SR=c0", "-c:v", "libx264", "-c:a", "dca", "-strict", "-2", "-shortest");
+        await Try("dts.mkv", new() { Path.Combine(dir, "dts.mkv") }, "mkv-tv");
+        var tv = await Probe("dts (2).mkv");
+        Check((await Probe("dts.mkv")).Contains("Audio: dts") && tv.Contains("Audio: ac3") && tv.Contains("5.1") && tv.Contains("Video: h264"), "DTS → MKV pour TV : son Dolby 5.1");
         Check((await Probe("soustitre.mp4")).Contains("Subtitle") && (await Probe("soustitre.webm")).Contains("Subtitle"), "mkv → mp4/webm : sous-titres conservés");
 
         // texte d'un docx : paragraphe qui porte un cadre (texte des deux gardé), saut de ligne manuel

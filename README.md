@@ -18,7 +18,7 @@ Convertisseur de fichiers, retouche et téléchargeur de vidéos pour Windows 10
 | Famille | Entrées | Sorties |
 |---|---|---|
 | Audio | mp3 wav flac ogg m4a aac wma opus aiff amr ac3 dts ape caf m4r mka wv au mp2 | MP3, WAV, FLAC, M4A, ALAC, OGG, OPUS, AIFF, WMA, AC3, sonnerie iPhone (M4R), MP4 fond noir |
-| Vidéo | mp4 mkv avi mov webm wmv flv m4v 3gp mpg ts mts ogv vob asf rmvb divx f4v mxf… | MP4, MP4 léger, MP4 H.265, MP4 ≤ 10 Mo / ≤ 20 Mo (taille visée, pour Discord ou un e-mail), MKV, WEBM, MOV, AVI, WMV, MPEG, GIF, Animation WhatsApp (MP4 muet), WEBP animé, son seul (MP3, WAV, M4A, FLAC) |
+| Vidéo | mp4 mkv avi mov webm wmv flv m4v 3gp mpg ts mts ogv vob asf rmvb divx f4v mxf… | MP4, MP4 léger, MP4 H.265, MP4 ≤ 10 Mo / ≤ 20 Mo (taille visée, pour Discord ou un e-mail), MKV, MKV pour TV (son DTS → Dolby Digital, image intacte), WEBM, MOV, AVI, WMV, MPEG, GIF, Animation WhatsApp (MP4 muet), WEBP animé, son seul (MP3, WAV, M4A, FLAC) |
 | Image | png jpg webp bmp gif tiff ico heic avif tga psd dds qoi exr jp2 | PDF (plusieurs images = un PDF), PNG, JPG, WEBP, AVIF, GIF, BMP, TIFF, ICO ; GIF animé → MP4/WEBM/Animation WhatsApp |
 | PDF | pdf | Word (par Microsoft Word s'il est installé), PowerPoint, PNG/JPG (une image par page), texte, séparer les pages, fusionner |
 | Document | doc docx odt rtf txt md html wpd wps pages | PDF, Word, ODT, RTF, texte, Markdown, HTML, EPUB, images par page |

@@ -3,7 +3,7 @@
 public enum Kind { Audio, Video, Image, Pdf, Text, Sheet, Slides, Drawing, Subtitle, Unknown }
 
 /// <summary>Un format de sortie. Id = ce qu'on passe en ligne de commande (--to mp3).</summary>
-public record Target(string Id, string Label, string Ext, string Hint = "");
+public record Target(string Id, string Label, string Ext, string Hint = "", string Family = "");
 
 public static class Formats
 {
@@ -22,83 +22,106 @@ public static class Formats
     /// <summary>Documents traités par le moteur bureautique (Office / LibreOffice).</summary>
     public static bool IsOffice(Kind k) => k is Kind.Text or Kind.Sheet or Kind.Slides or Kind.Drawing;
 
+    /// <summary>Range des formats dans une famille : l'écran Convertir affiche une ligne par famille.</summary>
+    static IEnumerable<Target> Fam(string family, params Target[] t) => t.Select(x => x with { Family = family });
+
     static readonly Target[] AudioTargets =
-    {
-        new("mp3", "MP3", "mp3", "Le plus compatible"),
-        new("wav", "WAV", "wav", "Sans perte, lourd"),
-        new("flac", "FLAC", "flac", "Sans perte, compressé"),
-        new("m4a", "M4A", "m4a", "AAC, Apple"),
-        new("alac", "ALAC", "m4a", "Sans perte, Apple"),
-        new("ogg", "OGG", "ogg", "Vorbis"),
-        new("opus", "OPUS", "opus", "Petit et net"),
-        new("aiff", "AIFF", "aiff", "Sans perte, Mac"),
-        new("wma", "WMA", "wma", "Windows Media"),
-        new("ac3", "AC3", "ac3", "Dolby Digital"),
-        new("m4r", "Sonnerie", "m4r", "iPhone, 40 s max"),
-        new("mp4", "MP4", "mp4", "Vidéo fond noir"),
-    };
+    [
+        .. Fam("COURANT",
+            new("mp3", "MP3", "mp3", "Le plus compatible"),
+            new("m4a", "M4A", "m4a", "AAC, Apple"),
+            new("ogg", "OGG", "ogg", "Vorbis"),
+            new("opus", "OPUS", "opus", "Petit et net"),
+            new("wma", "WMA", "wma", "Windows Media"),
+            new("ac3", "AC3", "ac3", "Dolby Digital")),
+        .. Fam("SANS PERTE",
+            new("flac", "FLAC", "flac", "Sans perte, compressé"),
+            new("wav", "WAV", "wav", "Sans perte, lourd"),
+            new("alac", "ALAC", "m4a", "Sans perte, Apple"),
+            new("aiff", "AIFF", "aiff", "Sans perte, Mac")),
+        .. Fam(Other,
+            new("m4r", "Sonnerie", "m4r", "iPhone, 40 s max"),
+            new("mp4", "MP4", "mp4", "Vidéo fond noir")),
+    ];
+    public const string Other = "AUTRE USAGE";
+
     static readonly Target[] VideoTargets =
-    {
-        new("mp4", "MP4", "mp4", "Le plus compatible"),
-        new("mp4-small", "MP4 léger", "mp4", "Compresse la vidéo"),
-        new("mp4-hevc", "MP4 H.265", "mp4", "Même qualité, 2× plus léger"),
-        new("mp4-20mo", "≤ 20 Mo", "mp4", "MP4 en pièce jointe d'e-mail"),
-        new("mp4-10mo", "≤ 10 Mo", "mp4", "MP4 pour Discord, messageries"),
-        new("mkv", "MKV", "mkv"),
-        new("webm", "WEBM", "webm", "Pour le web"),
-        new("mov", "MOV", "mov", "Apple"),
-        new("avi", "AVI", "avi"),
-        new("wmv", "WMV", "wmv", "Windows Media"),
-        new("mpg", "MPEG", "mpg", "Vieux lecteurs, DVD"),
-        new("gif", "GIF", "gif", "Animation"),
-        new("mp4-anim", "Animation WhatsApp", "mp4", "Vidéo muette et légère"),
-        new("webp", "WEBP animé", "webp", "Animation légère"),
-        new("mp3", "MP3", "mp3", "Extraire le son"),
-        new("wav", "WAV", "wav", "Extraire le son"),
-        new("m4a", "M4A", "m4a", "Extraire le son"),
-        new("flac", "FLAC", "flac", "Extraire le son"),
-    };
+    [
+        .. Fam("VIDÉO",
+            new("mp4", "MP4", "mp4", "Le plus compatible"),
+            new("mkv", "MKV", "mkv"),
+            new("mkv-tv", "MKV pour TV", "mkv", "Son DTS → Dolby, image intacte"),
+            new("mov", "MOV", "mov", "Apple"),
+            new("webm", "WEBM", "webm", "Pour le web"),
+            new("avi", "AVI", "avi"),
+            new("wmv", "WMV", "wmv", "Windows Media"),
+            new("mpg", "MPEG", "mpg", "Vieux lecteurs, DVD")),
+        .. Fam("PLUS LÉGER",
+            new("mp4-small", "MP4 léger", "mp4", "Compresse la vidéo"),
+            new("mp4-hevc", "MP4 H.265", "mp4", "Même qualité, 2× plus léger"),
+            new("mp4-20mo", "≤ 20 Mo", "mp4", "MP4 en pièce jointe d'e-mail"),
+            new("mp4-10mo", "≤ 10 Mo", "mp4", "MP4 pour Discord, messageries")),
+        .. Fam("ANIMATION",
+            new("gif", "GIF", "gif", "Animation"),
+            new("mp4-anim", "Animation WhatsApp", "mp4", "Vidéo muette et légère"),
+            new("webp", "WEBP animé", "webp", "Animation légère")),
+        .. Fam("SON SEUL",
+            new("mp3", "MP3", "mp3", "Extraire le son"),
+            new("m4a", "M4A", "m4a", "Extraire le son"),
+            new("flac", "FLAC", "flac", "Extraire le son"),
+            new("wav", "WAV", "wav", "Extraire le son")),
+    ];
     static readonly Target[] ImageTargets =
-    {
-        new("pdf", "PDF", "pdf", "Plusieurs images = un seul PDF"),
-        new("png", "PNG", "png", "Sans perte"),
-        new("jpg", "JPG", "jpg", "Léger"),
-        new("webp", "WEBP", "webp", "Moderne, très léger"),
-        new("avif", "AVIF", "avif", "Le plus léger"),
-        new("gif", "GIF", "gif"),
-        new("bmp", "BMP", "bmp"),
-        new("tiff", "TIFF", "tiff", "Impression"),
-        new("ico", "ICO", "ico", "Icône Windows"),
-    };
+    [
+        .. Fam("PHOTO",
+            new("jpg", "JPG", "jpg", "Léger"),
+            new("png", "PNG", "png", "Sans perte"),
+            new("webp", "WEBP", "webp", "Moderne, très léger"),
+            new("avif", "AVIF", "avif", "Le plus léger")),
+        .. Fam("AUTRES IMAGES",
+            new("gif", "GIF", "gif"),
+            new("bmp", "BMP", "bmp"),
+            new("tiff", "TIFF", "tiff", "Impression"),
+            new("ico", "ICO", "ico", "Icône Windows")),
+        .. Fam("DOCUMENT",
+            new Target("pdf", "PDF", "pdf", "Plusieurs images = un seul PDF")),
+    ];
     static readonly Target[] GifExtra =
-    {
-        new("mp4", "MP4", "mp4", "Animation → vidéo"),
-        new("webm", "WEBM", "webm", "Animation → vidéo"),
-        new("mp4-anim", "Animation WhatsApp", "mp4", "Vidéo muette et légère"),
-    };
+    [
+        .. Fam("VIDÉO",
+            new("mp4", "MP4", "mp4", "Animation → vidéo"),
+            new("webm", "WEBM", "webm", "Animation → vidéo"),
+            new("mp4-anim", "Animation WhatsApp", "mp4", "Vidéo muette et légère")),
+    ];
     static readonly Target[] PdfTargets =
-    {
-        new("docx", "Word", "docx", "Texte modifiable"),
-        new("pptx", "PowerPoint", "pptx", "Une diapo par page"),
-        new("png", "PNG", "png", "Une image par page"),
-        new("jpg", "JPG", "jpg", "Une image par page"),
-        new("txt", "Texte", "txt", "Texte brut"),
-        new("pdf-split", "Séparer", "pdf", "Un PDF par page"),
-        new("pdf-merge", "Fusionner", "pdf", "Plusieurs PDF = un seul"),
-    };
+    [
+        .. Fam("MODIFIABLE",
+            new("docx", "Word", "docx", "Texte modifiable"),
+            new("pptx", "PowerPoint", "pptx", "Une diapo par page"),
+            new("txt", "Texte", "txt", "Texte brut")),
+        .. Fam("IMAGES",
+            new("png", "PNG", "png", "Une image par page"),
+            new("jpg", "JPG", "jpg", "Une image par page")),
+        .. Fam("PAGES",
+            new("pdf-split", "Séparer", "pdf", "Un PDF par page"),
+            new("pdf-merge", "Fusionner", "pdf", "Plusieurs PDF = un seul")),
+    ];
     static readonly Target[] TextTargets =
-    {
-        new("pdf", "PDF", "pdf"),
-        new("docx", "Word", "docx", "DOCX"),
-        new("odt", "ODT", "odt", "LibreOffice"),
-        new("rtf", "RTF", "rtf"),
-        new("txt", "Texte", "txt", "Texte brut"),
-        new("md", "Markdown", "md"),
-        new("html", "HTML", "html", "Page web"),
-        new("epub", "EPUB", "epub", "Livre numérique"),
-        new("png-pages", "PNG", "png", "Une image par page"),
-        new("jpg-pages", "JPG", "jpg", "Une image par page"),
-    };
+    [
+        .. Fam("DOCUMENT",
+            new("pdf", "PDF", "pdf"),
+            new("docx", "Word", "docx", "DOCX"),
+            new("odt", "ODT", "odt", "LibreOffice"),
+            new("rtf", "RTF", "rtf")),
+        .. Fam("TEXTE ET WEB",
+            new("txt", "Texte", "txt", "Texte brut"),
+            new("md", "Markdown", "md"),
+            new("html", "HTML", "html", "Page web"),
+            new("epub", "EPUB", "epub", "Livre numérique")),
+        .. Fam("IMAGES",
+            new("png-pages", "PNG", "png", "Une image par page"),
+            new("jpg-pages", "JPG", "jpg", "Une image par page")),
+    ];
     static readonly Target[] SheetTargets =
     {
         new("pdf", "PDF", "pdf"),
