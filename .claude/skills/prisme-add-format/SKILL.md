@@ -11,7 +11,7 @@ Tout part de `src/Core/Formats.cs` : le menu clic droit, le sélecteur de fichie
 1. Ajouter l'extension au bon tableau (`AudioExts`, `VideoExts`, `ImageExts`, `TextExts`, `SheetExts`, `SlidesExts`, `DrawingExts`, `SubtitleExts`).
 2. Vérifier que le moteur sait le lire :
    - audio, vidéo, images : `vendor\ffmpeg.exe -hide_banner -decoders` ;
-   - documents : LibreOffice (`vendor\office\program\soffice.exe --headless --convert-to pdf fichier`).
+   - documents : LibreOffice (`%LOCALAPPDATA%\Prisme\office\program\soffice.exe --headless --convert-to pdf fichier`, téléchargé par Prisme au premier document).
 3. Si l'extension est un alias d'un format existant (comme jpeg et jpg), l'ajouter au `switch` de `same` dans `TargetsFor`, pour ne pas proposer « X → X ».
 
 ## Format de sortie

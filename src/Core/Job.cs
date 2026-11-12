@@ -82,6 +82,7 @@ public class Job : INotifyPropertyChanged
     public string Url { get; init; }           // téléchargement
     public string DownloadMode { get; init; }   // best | 1080 | 720 | mp3
     public CancellationTokenSource Cts { get; } = new();
+    public DateTime Created { get; } = DateTime.Now;
     /// <summary>Retouches par fichier d'entrée (extrait, recadrage, taille) ; absent = aucune.</summary>
     public IReadOnlyDictionary<string, Edit> Edits { get; init; }
     public Edit EditOf(string input) => Edits != null && Edits.TryGetValue(input, out var e) ? e : Edit.None;

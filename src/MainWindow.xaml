@@ -774,7 +774,7 @@
                 </StackPanel>
               </DockPanel>
               <TextBlock Margin="0,14,0,0" FontSize="12.5" Foreground="{StaticResource Text3}" TextWrapping="Wrap"
-                         Text="Audio, vidéo et images : FFmpeg · Documents : Microsoft Office s'il est installé, sinon moteur LibreOffice intégré · PDF : PDFsharp et le moteur PDF de Windows. Tout fonctionne hors ligne, sans publicité ni envoi de fichiers sur Internet."/>
+                         Text="Audio, vidéo et images : FFmpeg · Documents : Microsoft Office s'il est installé, sinon LibreOffice (téléchargé une seule fois, au premier document qui en a besoin) · PDF : PDFsharp et le moteur PDF de Windows. Tout fonctionne hors ligne, sans publicité ni envoi de fichiers sur Internet."/>
             </StackPanel>
           </Border>
 
@@ -810,6 +810,43 @@
           <TextBlock x:Name="DropOverlayText" Text="Lâche pour ajouter" FontFamily="{StaticResource Display}" FontSize="22" FontWeight="SemiBold" Margin="0,20,0,0" HorizontalAlignment="Center"/>
         </StackPanel>
       </Border>
+
+      <!-- LibreOffice à télécharger : proposition, puis installation en direct (DataContext = la tâche qui en a besoin) -->
+      <Grid x:Name="OfficeOverlay" Visibility="Collapsed" Background="#D90A0A12" Panel.ZIndex="5">
+        <Border x:Name="OfficeCard" Style="{StaticResource CardBox}" Width="470" Padding="28,26" CornerRadius="18" BorderBrush="{StaticResource StrokeHi}"
+                HorizontalAlignment="Center" VerticalAlignment="Center">
+          <Border.RenderTransform><TranslateTransform/></Border.RenderTransform>
+          <Border.Effect><DropShadowEffect Color="#B565FF" BlurRadius="48" ShadowDepth="0" Opacity="0.22"/></Border.Effect>
+          <StackPanel>
+            <Grid Width="60" Height="60" HorizontalAlignment="Left">
+              <Border CornerRadius="17" Background="{StaticResource Spectrum}"/>
+              <Path x:Name="OfficeIcon" Style="{StaticResource Icon}" Data="{StaticResource IcDoc}" Width="28" Height="28" Stroke="White" StrokeThickness="2"
+                    RenderTransformOrigin="0.5,0.5">
+                <Path.RenderTransform><ScaleTransform/></Path.RenderTransform>
+              </Path>
+            </Grid>
+            <TextBlock x:Name="OfficeTitle" FontFamily="{StaticResource Display}" FontSize="21" FontWeight="SemiBold" Margin="0,18,0,0" TextWrapping="Wrap"/>
+            <TextBlock x:Name="OfficeText" FontSize="13.5" Foreground="{StaticResource Text2}" TextWrapping="Wrap" LineHeight="20" Margin="0,8,0,0"/>
+            <StackPanel x:Name="OfficeProgress" Visibility="Collapsed" Margin="0,22,0,0">
+              <ProgressBar Style="{StaticResource Bar}" Height="6" Value="{Binding Progress, Mode=OneWay}" IsIndeterminate="{Binding Indeterminate}"/>
+              <TextBlock Style="{StaticResource LoadingText}" Text="{Binding Status}" HorizontalAlignment="Left" Margin="0,10,0,0"/>
+            </StackPanel>
+            <StackPanel x:Name="OfficeAskButtons" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,26,0,0">
+              <Button Style="{StaticResource Btn}" Content="Annuler" Click="OfficeCancel_Click" Margin="0,0,10,0"/>
+              <Button x:Name="OfficeDownloadBtn" Style="{StaticResource Primary}" Padding="22,10" Click="OfficeDownload_Click">
+                <StackPanel Orientation="Horizontal">
+                  <Path Style="{StaticResource Icon}" Data="{StaticResource IcDownload}" Width="17" Height="17" Stroke="White" Margin="0,0,8,0"/>
+                  <TextBlock Text="Télécharger" Foreground="White" FontSize="14"/>
+                </StackPanel>
+              </Button>
+            </StackPanel>
+            <StackPanel x:Name="OfficeRunButtons" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0" Visibility="Collapsed">
+              <Button Style="{StaticResource Btn}" Content="Annuler" Click="OfficeCancel_Click" Margin="0,0,10,0"/>
+              <Button Style="{StaticResource Btn}" Content="Continuer en arrière-plan" Click="OfficeHide_Click"/>
+            </StackPanel>
+          </StackPanel>
+        </Border>
+      </Grid>
     </Grid>
   </Grid>
 </Window>

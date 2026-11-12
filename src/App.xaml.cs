@@ -45,6 +45,7 @@ public partial class App : Application
                     Settings.StartWithWindows = args.Length > 1 && args[1] == "on";
                     Shell.SetAutostart(Settings.StartWithWindows); Settings.Save(); Shutdown(0); return;
                 case "--selftest": Shutdown(args.Length > 1 ? SelfTest.RunReal(args[1]) : SelfTest.Run()); return;
+                case "--selftest-office" when args.Length > 1: Shutdown(SelfTest.RunOffice(args[1])); return;
             }
         }
 
@@ -73,6 +74,9 @@ public partial class App : Application
 
         CreateTray();
         _win = new MainWindow();
+        // LibreOffice manquant : la fenêtre le propose, puis montre son installation
+        OfficeSetup.Ask = (job, size) => Dispatcher.InvokeAsync(() => { ShowMain(); return _win.AskOffice(job, size); }).Task.Unwrap();
+        OfficeSetup.Finished += (job, ex) => Dispatcher.BeginInvoke(() => _win.OfficeFinished(job, ex));
         LoadHistory(); // après la fenêtre : elle affiche l'en-tête « Activité » quand la liste se remplit
         _debounce =new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
         _debounce.Tick += (_, _) => { _debounce.Stop(); FlushPending(); };

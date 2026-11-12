@@ -27,7 +27,9 @@ Convertisseur de fichiers, retouche et téléchargeur de vidéos pour Windows 10
 | Dessin | svg vsd vsdx pub cdr emf wmf odg | PDF, PNG, JPG |
 | Sous-titres | srt vtt ass ssa | SRT, VTT, ASS |
 
-Moteurs embarqués : FFmpeg (audio, vidéo, image), libVLC (aperçu de l'onglet Retoucher), yt-dlp (téléchargement, mis à jour automatiquement chaque jour), LibreOffice allégé (documents ; Microsoft Office est utilisé à sa place pour le PDF s'il est installé), PDFsharp et le moteur PDF de Windows.
+Moteurs embarqués : FFmpeg (audio, vidéo, image), libVLC (aperçu de l'onglet Retoucher), yt-dlp (téléchargement, mis à jour automatiquement chaque jour), PDFsharp et le moteur PDF de Windows.
+
+Documents : Microsoft Office pour le PDF s'il est installé, sinon LibreOffice allégé. LibreOffice n'est plus dans l'installeur : au premier document qui en a besoin, Prisme propose de le télécharger (≈ 360 Mo, une seule fois, MSI officiel dont la signature de The Document Foundation est vérifiée) et l'installe dans `%LOCALAPPDATA%\Prisme\office`, gardé d'une mise à jour à l'autre. Un LibreOffice déjà présent (ancienne version de Prisme, ou installé sur le PC) sert directement.
 
 ## Développement
 
@@ -35,8 +37,11 @@ Moteurs embarqués : FFmpeg (audio, vidéo, image), libVLC (aperçu de l'onglet 
 |---|---|
 | Moteurs (vendor\, non versionné) | `.\tools\update-engines.ps1` |
 | Compiler + autotest + installeur | `.\build.ps1` → `dist\Prisme-Setup-<version>.exe` |
-| Autotest seul | `src\bin\Debug\net10.0-windows10.0.19041.0\Prisme.exe --selftest` → `%TEMP%\prisme-selftest.txt` |
-| Identité visuelle (icône, logo, images de l'installeur) | `.\tools\make-icon.ps1` |
+| Autotest seul | `src\bin\Debug\net10.0-windows10.0.19041.0\Prisme.exe --selftest` → `%TEMP%\prisme-selftest.txt` (télécharge LibreOffice sans question s'il manque) |
+| Essai réel du téléchargement de LibreOffice | `Prisme.exe --selftest-office <dossier>` → `%TEMP%\prisme-selftest-office.txt` |
+| Identité visuelle (icône, logo, logo de l'installeur) | `.\tools\make-icon.ps1` |
+
+Installeur : moteur commun `..\installeur` (WPF .NET Framework 4.8, à l'image de Prisme), config dans `..\installeur\applis\prisme`. `build.ps1` fabrique `Prisme-Setup-<v>.exe` et la mise à jour légère `Prisme-Update-<v>-<enginesId>.exe` (Prisme.exe seul), puis relit leur charge (`--verifier-charge`).
 
 Mises à jour : chaque version est une release GitHub `vX.Y.Z` avec l'installeur `Prisme-Setup-X.Y.Z.exe` joint ; la version installée la trouve (API GitHub), vérifie taille et SHA-256, puis l'installe en silence. Le numéro augmente à chaque livraison (1.2.0 → 1.2.1…).
 
@@ -44,4 +49,4 @@ Ligne de commande : `Prisme.exe [fichiers…]`, `--edit <fichier>` (onglet Retou
 
 Skills Claude du projet (`.claude/skills`) : `prisme-build`, `prisme-add-format`, `prisme-update-engines`.
 
-Licences : FFmpeg (GPL, `engines\FFMPEG-LICENSE.txt`), LibreOffice (MPL 2.0, `engines\office\LICENSE.html`), yt-dlp (Unlicense), PDFsharp (MIT), libVLC et LibVLCSharp (LGPL 2.1).
+Licences : FFmpeg (GPL, `engines\FFMPEG-LICENSE.txt`), LibreOffice (MPL 2.0, `%LOCALAPPDATA%\Prisme\office\LICENSE.html`), yt-dlp (Unlicense), PDFsharp (MIT), libVLC et LibVLCSharp (LGPL 2.1).

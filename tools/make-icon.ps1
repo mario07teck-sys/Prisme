@@ -1,10 +1,9 @@
-﻿# Génère l'identité visuelle de Prisme : icône multi-taille, logo, images de l'installeur.
+﻿# Génère l'identité visuelle de Prisme : icône multi-taille, logo, logo et icône de l'installeur.
 # Dessin vectoriel WPF rendu séparément à chaque taille (net à 16 px comme à 256 px).
 Add-Type -AssemblyName PresentationCore, PresentationFramework, WindowsBase
 $root = Split-Path $PSScriptRoot
 $assets = Join-Path $root 'src\Assets'
-$inst = Join-Path $root 'installer'
-New-Item -ItemType Directory -Force $assets, $inst | Out-Null
+New-Item -ItemType Directory -Force $assets | Out-Null
 
 function C($hex, $a = 255) { $c = [Windows.Media.ColorConverter]::ConvertFromString($hex); $c.A = $a; $c }
 function B($hex, $a = 255) { $b = New-Object Windows.Media.SolidColorBrush (C $hex $a); $b.Freeze(); $b }
@@ -97,21 +96,10 @@ $bw.Flush(); [IO.File]::WriteAllBytes((Join-Path $assets 'prisme.ico'), $ms.ToAr
 Save (Render 512 512 { param($dc) Draw-Prism $dc 0 0 512 $false }) (Join-Path $assets 'logo.png') | Out-Null
 Save (Render 1024 1024 { param($dc) Draw-Prism $dc 0 0 1024 $true }) (Join-Path $root 'prisme-1024.png') | Out-Null
 
-# --- images de l'installeur (BMP, 100 % et 200 %) ---
-foreach ($k in 1, 2) {
-  $w = 164 * $k; $h = 314 * $k
-  $bmp = Render $w $h { param($dc)
-    $g = New-Object Windows.Media.LinearGradientBrush (C '#1E1840'), (C '#06060C'), (P 0 0), (P 0.4 1)
-    $dc.DrawRectangle($g, $null, (New-Object Windows.Rect 0, 0, $w, $h))
-    Draw-Prism $dc ($w * 0.14) ($h * 0.22) ($w * 0.72) $false
-    $tf = New-Object Windows.Media.Typeface 'Segoe UI Variable Display Semibold'
-    $ft = New-Object Windows.Media.FormattedText 'Prisme', ([Globalization.CultureInfo]::InvariantCulture), 'LeftToRight', $tf, (26 * $k), (B '#FFFFFF'), 1.0
-    $dc.DrawText($ft, (P (($w - $ft.Width) / 2) ($h * 0.66)))
-    $ft2 = New-Object Windows.Media.FormattedText 'Convertir. Télécharger.', ([Globalization.CultureInfo]::InvariantCulture), 'LeftToRight', $tf, (10.5 * $k), (B '#B8B4D8'), 1.0
-    $dc.DrawText($ft2, (P (($w - $ft2.Width) / 2) ($h * 0.66 + 36 * $k)))
-  }
-  Save $bmp (Join-Path $inst "wizard-$k.bmp") 'Bmp' | Out-Null
-  $sz = 55 * $k
-  Save (Render $sz $sz { param($dc) $dc.DrawRectangle((B '#FFFFFF'), $null, (New-Object Windows.Rect 0, 0, $sz, $sz)); Draw-Prism $dc 0 0 $sz $true }) (Join-Path $inst "small-$k.bmp") 'Bmp' | Out-Null
+# --- installeur (moteur commun ..\installeur) : logo 256 px et même icône ---
+$inst = Join-Path (Split-Path $root) 'installeur\applis\prisme'
+if (Test-Path $inst) {
+  Save (Render 256 256 { param($dc) Draw-Prism $dc 0 0 256 $false }) (Join-Path $inst 'logo.png') | Out-Null
+  Copy-Item (Join-Path $assets 'prisme.ico') (Join-Path $inst 'icone.ico') -Force
 }
 'Identité générée.'

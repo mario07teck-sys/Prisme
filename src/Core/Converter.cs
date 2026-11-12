@@ -505,7 +505,7 @@ public static class Converter
         catch { if (folder != null) try { Directory.Delete(folder, true); } catch { } else TryDelete(path); throw; }
     }
 
-    // ---------- documents bureautiques (Office s'il est là pour le PDF, sinon moteur LibreOffice embarqué) ----------
+    // ---------- documents bureautiques (Office s'il est là pour le PDF, sinon LibreOffice, téléchargé la première fois) ----------
 
     /// <summary>Filtre d'export LibreOffice pour chaque format cible.</summary>
     static string LoFilter(string id, Kind src) => id switch
@@ -539,7 +539,7 @@ public static class Converter
                 var docx = Path.Combine(Path.GetTempPath(), $"prisme-{Guid.NewGuid():N}.docx");
                 try
                 {
-                    await LibreOffice(input, docx, LoFilter("docx", Kind.Pdf), infilter, ct);
+                    await LibreOffice(job, input, docx, LoFilter("docx", Kind.Pdf), infilter, ct);
                     // l'export texte de LibreOffice ignore aussi les cadres du docx : on lit le texte directement dans le XML
                     var text = DocxText(docx);
                     // shortcut: un PDF mi-texte mi-scan ne passe pas par l'OCR, à revoir si ça arrive vraiment
@@ -549,7 +549,7 @@ public static class Converter
                 }
                 finally { TryDelete(docx); }
             }
-            else output = await LibreOffice(input, output, LoFilter(job.Target.Id, Formats.KindOf(input)), infilter, ct);
+            else output = await LibreOffice(job, input, output, LoFilter(job.Target.Id, Formats.KindOf(input)), infilter, ct);
             job.Output = output;
         }
         catch { TryDelete(output); throw; }
@@ -614,7 +614,7 @@ public static class Converter
             {
                 job.Status = "Conversion…";
                 if (!(await Task.Run(() => TryMsOffice(Path.GetFullPath(input), tmp)) && File.Exists(tmp) && new FileInfo(tmp).Length > 0))
-                    await LibreOffice(Path.GetFullPath(input), tmp, "pdf", null, ct);
+                    await LibreOffice(job, Path.GetFullPath(input), tmp, "pdf", null, ct);
             }
             finally { OfficeLock.Release(); }
             job.Indeterminate = false;
@@ -625,9 +625,9 @@ public static class Converter
 
     /// <summary>Convertit avec LibreOffice vers <paramref name="output"/> et renvoie le chemin final
     /// (un dossier « nom » avec la page et ses images quand l'export HTML produit plusieurs fichiers).</summary>
-    static async Task<string> LibreOffice(string input, string output, string filter, string infilter, CancellationToken ct)
+    static async Task<string> LibreOffice(Job job, string input, string output, string filter, string infilter, CancellationToken ct)
     {
-        var soffice = Engines.Soffice ?? throw new Exception("Moteur de documents introuvable : réinstalle Prisme");
+        var soffice = Engines.Soffice ?? await OfficeSetup.Ensure(job, ct); // première fois : proposé, téléchargé puis installé
         var tmp = Path.Combine(Path.GetTempPath(), "prisme-doc-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tmp);
         try

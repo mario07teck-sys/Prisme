@@ -1,4 +1,5 @@
-﻿# Compile Prisme, lance l'autotest sur la version publiée, puis fabrique dist\Prisme-Setup-<version>.exe
+﻿# Compile Prisme, lance l'autotest sur la version publiée, puis fabrique dist\Prisme-Setup-<version>.exe et la mise à jour légère
+# avec le moteur d'installeur commun (..\installeur\fabriquer.ps1)
 # Usage : .\build.ps1            (tout)
 #         .\build.ps1 -NoTest    (sans l'autotest)
 param([switch]$NoTest)
@@ -6,7 +7,8 @@ $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
 
-foreach ($f in 'vendor\ffmpeg.exe', 'vendor\yt-dlp.exe', 'vendor\office\program\soffice.exe') {
+# LibreOffice n'est plus embarqué : Prisme le télécharge au premier document qui en a besoin (src\Core\OfficeSetup.cs)
+foreach ($f in 'vendor\ffmpeg.exe', 'vendor\yt-dlp.exe') {
   if (-not (Test-Path "$root\$f")) { throw "Moteur manquant : $f (voir README, section Moteurs)" }
 }
 
@@ -25,6 +27,7 @@ dotnet publish "$root\src\Prisme.csproj" -c Release -r win-x64 --self-contained 
 if ($LASTEXITCODE) { throw 'Échec de la compilation' }
 
 if (-not $NoTest) {
+  # documents : LibreOffice de %LOCALAPPDATA%\Prisme\office, téléchargé sans question au premier autotest qui en manque
   Write-Host '-> Autotest (toutes les conversions)'
   $report = "$env:TEMP\prisme-selftest.txt"
   Remove-Item $report -ErrorAction SilentlyContinue
@@ -42,18 +45,21 @@ $sha = [Security.Cryptography.SHA256]::Create()
 $enginesId = (-join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($eng -join "`n")) | ForEach-Object { $_.ToString('x2') })).Substring(0, 12)
 [IO.File]::WriteAllText("$root\publish\engines.id", $enginesId)
 
-Write-Host "-> Installeur"
-$iscc = @("$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe", "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
-  Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $iscc) { throw 'Inno Setup 6 introuvable : winget install JRSoftware.InnoSetup' }
-& $iscc /Q "/DAppVersion=$version" "$root\installer\Prisme.iss"
-if ($LASTEXITCODE) { throw "Échec d'Inno Setup" }
-
-& $iscc /Q "/DAppVersion=$version" "/DEnginesId=$enginesId" "$root\installer\Prisme.iss"
-if ($LASTEXITCODE) { throw "Échec d'Inno Setup (mise à jour légère)" }
+# installeurs : moteur commun ..\installeur (fenêtre aux couleurs de Prisme), plus d'Inno Setup
+$fab = Join-Path (Split-Path $root) 'installeur\fabriquer.ps1'
+$cfg = Join-Path (Split-Path $root) 'installeur\applis\prisme'
+if (-not (Test-Path $fab)) { throw "Moteur d'installeur introuvable : $fab" }
+Write-Host '-> Installeur complet'
+& $fab -Appli $cfg -Charge "$root\publish" -Version $version -Sortie "$root\dist\Prisme-Setup-$version.exe"
+# mise à jour légère : Prisme.exe (et engines.id) seulement, les moteurs déjà installés sont gardés ; refuse de s'installer sans Prisme
+Write-Host '-> Mise à jour légère'
+& $fab -Appli $cfg -Charge "$root\publish" -Version $version -Sortie "$root\dist\Prisme-Update-$version-$enginesId.exe" -Leger -Exclure engines, libvlc
 
 foreach ($f in "Prisme-Setup-$version.exe", "Prisme-Update-$version-$enginesId.exe") {
   $setup = Get-Item "$root\dist\$f"
+  # relit le pied et décompresse toute la charge, sans rien installer
+  $v = Start-Process $setup.FullName -ArgumentList '--verifier-charge' -Wait -PassThru -RedirectStandardOutput "$env:TEMP\prisme-verif.txt"
+  if ($v.ExitCode -ne 0) { Get-Content "$env:TEMP\prisme-verif.txt" -Encoding UTF8 | Select-Object -Last 5; throw "Charge illisible : $f" }
   Write-Host ("OK : {0} ({1:N0} Mo)" -f $setup.FullName, ($setup.Length / 1MB)) -ForegroundColor Green
 }
 Write-Host 'Publier les DEUX fichiers dans la release GitHub (le léger sert aux Prisme qui ont déjà ces moteurs).'

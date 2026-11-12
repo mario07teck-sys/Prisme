@@ -10,13 +10,14 @@ public static class Engines
     public static string Ffmpeg => Path.Combine(Dir, "ffmpeg.exe");
     public static string YtDlp => Path.Combine(Dir, "yt-dlp.exe");
 
-    /// <summary>LibreOffice embarqué, sinon celui installé sur le PC.</summary>
+    /// <summary>LibreOffice téléchargé par Prisme, sinon celui des anciens installeurs, sinon celui installé sur le PC ; null s'il faut le télécharger.</summary>
     public static string Soffice
     {
         get
         {
             foreach (var p in new[]
             {
+                Path.Combine(OfficeSetup.Dir, "program", "soffice.exe"),
                 Path.Combine(Dir, "office", "program", "soffice.exe"),
                 @"C:\Program Files\LibreOffice\program\soffice.exe",
                 @"C:\Program Files (x86)\LibreOffice\program\soffice.exe",

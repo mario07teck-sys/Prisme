@@ -11,7 +11,8 @@ public static class Shell
     static string Exe => Environment.ProcessPath;
 
     /// <summary>Vrai pour la copie installée, quel que soit le dossier choisi (l'installeur y laisse son désinstalleur), faux pour une build de dev.</summary>
-    public static bool IsInstalledCopy => File.Exists(Path.Combine(Path.GetDirectoryName(Exe)!, "unins000.exe"));
+    /// (désinstalleur du moteur commun ..\installeur depuis la 1.2.8 ; unins000.exe d'Inno Setup avant, retiré par la mise à jour)
+    public static bool IsInstalledCopy => new[] { "Désinstaller Prisme.exe", "unins000.exe" }.Any(f => File.Exists(Path.Combine(Path.GetDirectoryName(Exe)!, f)));
 
     static IEnumerable<string> AllExts => Formats.AllExts;
 

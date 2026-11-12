@@ -33,6 +33,39 @@ public static class SelfTest
         return fails;
     }).GetAwaiter().GetResult();
 
+    /// <summary>Prisme.exe --selftest-office &lt;dossier&gt; : vrai téléchargement de LibreOffice dans &lt;dossier&gt;\office (comme à la première
+    /// conversion d'un document, sans toucher à %LOCALAPPDATA%\Prisme), puis un RTF → PDF avec. Rapport : %TEMP%\prisme-selftest-office.txt.</summary>
+    public static int RunOffice(string dir) => Task.Run(async () =>
+    {
+        var log = new StringBuilder(); int fails = 0;
+        void Check(bool ok, string what) { log.AppendLine((ok ? "OK    " : "ÉCHEC ") + what); if (!ok) fails++; }
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var (url, size) = await OfficeSetup.Locate(CancellationToken.None);
+            log.AppendLine($"MSI : {url} ({size / 1048576} Mo)");
+            Check(!OfficeSetup.SignedByTdf(Environment.ProcessPath), "signature : un fichier qui n'est pas de The Document Foundation est refusé");
+            string last = null;
+            var office = Path.Combine(dir, "office");
+            await OfficeSetup.Install(url, size, office, (s, _) =>
+            {
+                if (s != last && !s.StartsWith("Téléchargement")) log.AppendLine($"      {sw.Elapsed:mm\\:ss} {last = s}");
+            }, CancellationToken.None);
+            var mb = Directory.EnumerateFiles(office, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length) / 1048576;
+            log.AppendLine($"Installé en {sw.Elapsed.TotalSeconds:0} s, {mb} Mo");
+            Check(!Directory.Exists(office + "-work"), "dossier de travail supprimé");
+            var rtf = Path.Combine(dir, "lettre.rtf");
+            File.WriteAllText(rtf, @"{\rtf1\ansi\f0\fs28 Bonjour Prisme \u233?t\u233? !\par}", Encoding.ASCII);
+            await Engines.Run(Path.Combine(office, "program", "soffice.exe"), new[] { $"-env:UserInstallation={new Uri(Path.Combine(dir, "profil")).AbsoluteUri}",
+                "--headless", "--norestore", "--convert-to", "pdf", "--outdir", dir, rtf }, null, null, CancellationToken.None);
+            Check(File.Exists(Path.Combine(dir, "lettre.pdf")), "RTF → PDF avec le LibreOffice téléchargé");
+        }
+        catch (Exception e) { Check(false, "installation : " + e.Message); }
+        log.AppendLine(fails == 0 ? "\nTOUT EST OK" : $"\n{fails} ÉCHEC(S)");
+        File.WriteAllText(Path.Combine(Path.GetTempPath(), "prisme-selftest-office.txt"), log.ToString(), Encoding.UTF8);
+        return fails;
+    }).GetAwaiter().GetResult();
+
     static async Task<int> RunAsync()
     {
         var log = new StringBuilder();

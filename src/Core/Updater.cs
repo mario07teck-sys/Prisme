@@ -24,7 +24,7 @@ public static class Updater
         catch { return null; }
     }
 
-    static readonly HttpClient Http = CreateClient();
+    internal static readonly HttpClient Http = CreateClient();
     static HttpClient CreateClient()
     {
         var h = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
@@ -94,7 +94,7 @@ public static class Updater
         return path;
     }
 
-    static async Task Fetch(Release r, string part, Action<double> progress, CancellationToken ct)
+    internal static async Task Fetch(Release r, string part, Action<double> progress, CancellationToken ct)
     {
         long done = File.Exists(part) ? new FileInfo(part).Length : 0;
         if (done > r.Size) { File.Delete(part); done = 0; }

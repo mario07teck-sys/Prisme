@@ -383,6 +383,80 @@ public partial class MainWindow : Window
         UpdateCheckBtn.IsEnabled = true;
     }
 
+    // ---------- LibreOffice à télécharger (premier document qui en a besoin) ----------
+
+    Job _officeJob;
+    TaskCompletionSource<bool> _officeAsk;
+
+    /// <summary>Propose de télécharger LibreOffice ; true = accepté (la fenêtre montre ensuite l'installation).</summary>
+    public Task<bool> AskOffice(Job job, long size)
+    {
+        _officeJob = job;
+        _officeAsk = new TaskCompletionSource<bool>();
+        OfficeOverlay.DataContext = job;
+        OfficeIcon.Data = (Geometry)FindResource("IcDoc");
+        OfficeTitle.Text = "Télécharger LibreOffice ?";
+        OfficeText.Text = $"Pour convertir ce document, Prisme a besoin de LibreOffice (≈ {size / 1048576.0:0} Mo à télécharger, une seule fois). "
+                        + "Prisme l'installe tout seul, puis la conversion reprend.";
+        OfficeProgress.Visibility = Visibility.Collapsed;
+        OfficeRunButtons.Visibility = Visibility.Collapsed;
+        OfficeAskButtons.Visibility = Visibility.Visible;
+        // tâche annulée depuis la liste : la question ou l'installation disparaît avec elle
+        job.Cts.Token.Register(() => Dispatcher.BeginInvoke(() => { if (_officeJob != job) return; _officeAsk.TrySetResult(false); HideOffice(); }));
+        ShowOffice();
+        OfficeDownloadBtn.Focus();
+        return _officeAsk.Task;
+    }
+
+    void OfficeDownload_Click(object sender, RoutedEventArgs e)
+    {
+        if (_officeAsk?.TrySetResult(true) != true) return; // double clic, ou clic pendant le fondu après « Annuler »
+        OfficeTitle.Text = "Installation de LibreOffice";
+        OfficeText.Text = "Tu peux continuer à utiliser Prisme : la conversion reprendra toute seule.";
+        OfficeAskButtons.Visibility = Visibility.Collapsed;
+        OfficeProgress.Visibility = OfficeRunButtons.Visibility = Visibility.Visible;
+        OfficeProgress.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.25)));
+    }
+
+    void OfficeCancel_Click(object sender, RoutedEventArgs e)
+    {
+        if (_officeAsk?.TrySetResult(false) == true) HideOffice(); // à la question : la conversion échoue avec un message
+        else _officeJob?.Cts.Cancel();                             // pendant l'installation : tout ce qui a été extrait est effacé
+    }
+
+    void OfficeHide_Click(object sender, RoutedEventArgs e) => HideOffice(); // la tâche garde sa progression dans la liste
+
+    /// <summary>Installation finie : coche animée puis fermeture ; ratée : la tâche affiche l'erreur.</summary>
+    public async void OfficeFinished(Job job, Exception ex)
+    {
+        if (_officeJob != job || OfficeOverlay.Visibility != Visibility.Visible || ex != null) { if (_officeJob == job) HideOffice(); return; }
+        OfficeIcon.Data = (Geometry)FindResource("IcCheck");
+        var pop = new DoubleAnimation(0.3, 1, TimeSpan.FromSeconds(0.45)) { EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.6 } };
+        OfficeIcon.RenderTransform.BeginAnimation(ScaleTransform.ScaleXProperty, pop);
+        OfficeIcon.RenderTransform.BeginAnimation(ScaleTransform.ScaleYProperty, pop);
+        OfficeTitle.Text = "LibreOffice est prêt";
+        OfficeText.Text = "La conversion reprend.";
+        OfficeProgress.Visibility = OfficeRunButtons.Visibility = Visibility.Collapsed;
+        await Task.Delay(1400);
+        if (_officeJob == job) HideOffice();
+    }
+
+    void ShowOffice()
+    {
+        OfficeOverlay.Visibility = Visibility.Visible;
+        OfficeOverlay.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.18)));
+        ((Storyboard)FindResource("PageIn")).Begin(OfficeCard);
+    }
+
+    void HideOffice()
+    {
+        if (OfficeOverlay.Visibility != Visibility.Visible) return;
+        _officeJob = null; _officeAsk = null;
+        var fade = new DoubleAnimation(0, TimeSpan.FromSeconds(0.18));
+        fade.Completed += (_, _) => { if (_officeJob == null) OfficeOverlay.Visibility = Visibility.Collapsed; };
+        OfficeOverlay.BeginAnimation(OpacityProperty, fade);
+    }
+
     // ---------- fenêtre ----------
 
     void Min_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;

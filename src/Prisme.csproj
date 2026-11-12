@@ -12,7 +12,7 @@
     <AssemblyName>Prisme</AssemblyName>
     <ApplicationIcon>Assets\prisme.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.2.7</Version>
+    <Version>1.2.8</Version>
     <Product>Prisme</Product>
     <Company>Mario Teck</Company>
     <Copyright>© 2026 Mario Teck</Copyright>
@@ -53,7 +53,6 @@
   <ItemGroup>
     <Resource Include="Assets\logo.png" />
     <Resource Include="Assets\prisme.ico" />
-    <Content Include="..\vendor\office\**" LinkBase="engines\office" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
     <Content Include="..\vendor\ffmpeg.exe" Link="engines\ffmpeg.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
     <Content Include="..\vendor\FFMPEG-LICENSE" Link="engines\FFMPEG-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
     <Content Include="..\vendor\yt-dlp.exe" Link="engines\yt-dlp.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
