@@ -92,6 +92,8 @@ public partial class App : Application
         Updater.Cleanup();
         if (updated && Settings.Notify) _tray.ShowBalloonTip(4000, "Prisme est à jour", $"Version {Updater.Current} installée.", Forms.ToolTipIcon.None);
         if (Shell.IsInstalledCopy) _ = UpdateLoop(); // une build de dev ne se remplace pas par la version publiée
+        // VLC (aperçu de « Retoucher ») se prépare en arrière-plan une fois Prisme affiché : le premier aperçu ne fige plus la fenêtre
+        Dispatcher.BeginInvoke((Action)Prisme.MainWindow.PrepareVlc, DispatcherPriority.ApplicationIdle);
     }
 
     // ---------- mises à jour (releases GitHub) ----------

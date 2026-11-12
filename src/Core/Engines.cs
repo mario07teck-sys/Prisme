@@ -43,12 +43,17 @@ public static class Engines
         using var p = new Process { StartInfo = psi, EnableRaisingEvents = true };
         p.OutputDataReceived += (_, e) => { if (e.Data != null) onOut?.Invoke(e.Data); };
         p.ErrorDataReceived += (_, e) => { if (e.Data != null) onErr?.Invoke(e.Data); };
-        p.Start();
-        try { p.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { } // le PC reste fluide pendant une conversion
-        p.BeginOutputReadLine(); p.BeginErrorReadLine();
+        // démarrage hors du fil de l'interface : ffmpeg pèse 100 Mo et l'antivirus peut le réanalyser plusieurs secondes
+        // avant qu'il parte, ce qui figeait la fenêtre au chargement d'une vidéo
+        await Task.Run(() =>
+        {
+            p.Start();
+            try { p.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { } // le PC reste fluide pendant une conversion
+            p.BeginOutputReadLine(); p.BeginErrorReadLine();
+        });
         using (ct.Register(() => { try { p.Kill(true); } catch { } }))
             await p.WaitForExitAsync(CancellationToken.None);
-        p.WaitForExit(); // vide les dernières lignes
+        await Task.Run(() => p.WaitForExit()); // vide les dernières lignes
         ct.ThrowIfCancellationRequested();
         return p.ExitCode;
     }

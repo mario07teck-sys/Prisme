@@ -27,6 +27,26 @@ public partial class MainWindow
     static LibVLC _vlc;
     VlcPlayer _mp;
 
+    // VLC fige la fenêtre s'il travaille sur le fil de l'interface : son démarrage (des dizaines de modules, plusieurs
+    // secondes la première fois) et chaque Stop/changement de vidéo (arrêt synchrone de la précédente). Il démarre donc
+    // en arrière-plan dès l'ouverture de Prisme, et ces appels passent par une file à part, exécutée dans l'ordre.
+    static Task<LibVLC> _vlcInit;
+    Task _vlcQueue = Task.CompletedTask;
+
+    /// <summary>Lance la préparation de VLC sans attendre (appelé au démarrage, quand Prisme est au calme).</summary>
+    public static void PrepareVlc() => _vlcInit ??= Task.Run(() =>
+    {
+        LibVLCSharp.Shared.Core.Initialize();
+        return new LibVLC("--quiet", "--no-video-title-show");
+    });
+
+    /// <summary>Exécute un appel bloquant de VLC hors du fil de l'interface, après les précédents.</summary>
+    Task Vlc(Action a)
+    {
+        _vlcQueue = _vlcQueue.ContinueWith(_ => { try { a(); } catch (Exception e) { App.Log("VLC : " + e); } }, TaskScheduler.Default);
+        return _vlcQueue;
+    }
+
     int _imW, _imH;                 // image d'origine, en pixels
     Rect _crop = new(0, 0, 1, 1);   // en fractions de l'image
     Rect _fit;                      // où l'image est dessinée à l'écran
@@ -114,7 +134,7 @@ public partial class MainWindow
     {
         _edPath = null; // les chargements encore en cours voient qu'un autre « fichier » a été choisi et s'arrêtent
         ShowEditMode(mix: null);
-        if (_mp != null) { _mp.Stop(); _mp.Media = null; } // VLC lâche le fichier : il peut être déplacé ou supprimé
+        if (_mp != null) { var mp = _mp; _ = Vlc(() => { mp.Stop(); mp.Media = null; }); } // VLC lâche le fichier : il peut être déplacé ou supprimé
         EdPic.Source = null; _imW = _imH = 0;
         EdError.Visibility = Visibility.Collapsed;
     }
@@ -176,10 +196,12 @@ public partial class MainWindow
         UpdateTimeline(); UpdateTimes();
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded); // l'onglet vient d'apparaître : sa vue vidéo doit exister
         if (path != _edPath) return;
-        if (!EnsureVlc()) { PreviewReady(false); return; }
-        using (var media = new Media(_vlc, new Uri(path))) _mp.Media = media;
-        _mp.Mute = true; _edArm = true; // on lance puis on met en pause tout de suite : la première image s'affiche
-        _mp.Play();
+        if (!await EnsureVlc()) { PreviewReady(false); return; }
+        if (path != _edPath) return;
+        var player = _mp; var lib = _vlc;
+        _edArm = true; // on lance puis on met en pause tout de suite : la première image s'affiche
+        await Vlc(() => { using (var media = new Media(lib, new Uri(path))) player.Media = media; player.Mute = true; player.Play(); });
+        if (path != _edPath) return;
         _edTimer.Start();
     }
 
@@ -207,13 +229,14 @@ public partial class MainWindow
         EdVideo.VerticalAlignment = tiny ? VerticalAlignment.Top : VerticalAlignment.Stretch;
     }
 
-    bool EnsureVlc()
+    async Task<bool> EnsureVlc()
     {
         if (_mp != null) return true;
         try
         {
-            LibVLCSharp.Shared.Core.Initialize();
-            _vlc ??= new LibVLC("--quiet", "--no-video-title-show");
+            PrepareVlc();
+            _vlc ??= await _vlcInit;   // déjà prêt d'habitude ; sinon on attend sans figer la fenêtre
+            if (_mp != null) return true;
             _mp = new VlcPlayer(_vlc) { EnableHardwareDecoding = true };
             EdVideo.MediaPlayer = _mp;
             return true;
@@ -252,7 +275,7 @@ public partial class MainWindow
         if (_mp == null) { UpdateHead(); return; }
         if (_mp.State is VLCState.Ended or VLCState.Stopped or VLCState.Error)
         {   // fin atteinte : VLC ne sait plus sauter, on le relance en pause
-            _mp.Stop(); _mp.Mute = true; _edArm = true; _mp.Play();
+            var mp = _mp; _edArm = true; _ = Vlc(() => { mp.Stop(); mp.Mute = true; mp.Play(); });
         }
         _edPending = _edPos;
         UpdateHead();
@@ -270,7 +293,7 @@ public partial class MainWindow
         if (_mp.State is VLCState.Ended or VLCState.Stopped or VLCState.Error)
         {
             if (_edPos >= _edDur - 0.2) _edPos = _edSel ? _edA : 0;
-            _mp.Stop(); _mp.Mute = false; _edArm = false; _mp.Play(); _edPending = _edPos;
+            var mp = _mp; _edArm = false; _ = Vlc(() => { mp.Stop(); mp.Mute = false; mp.Play(); }); _edPending = _edPos;
             return;
         }
         _edArm = false; _mp.Mute = false;
