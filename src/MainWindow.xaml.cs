@@ -468,7 +468,9 @@ public partial class MainWindow : Window
         EdPause();
         if (App.Current.Exiting) return;
         e.Cancel = true;
-        if (S.CloseToTray) App.Current.HideToTray(); else App.Current.Quit();
+        // Jamais Hide() ni Close() pendant la fermeture : WPF lève une exception, et Prisme restait vivant,
+        // sans fenêtre ni icône près de l'horloge, sourd à tout nouveau lancement. On agit juste après.
+        Dispatcher.BeginInvoke(() => { if (S.CloseToTray) App.Current.HideToTray(); else App.Current.Quit(); });
     }
 }
 

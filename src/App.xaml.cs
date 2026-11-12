@@ -51,6 +51,7 @@ public partial class App : Application
 
         _mutex = new Mutex(true, MutexName, out bool first);
         if (!first) { SendToFirst(args); Shutdown(0); return; }
+        Log($"Démarrage de Prisme {typeof(App).Assembly.GetName().Version?.ToString(3)} {string.Join(' ', args)}".TrimEnd());
 
         // après une mise à jour : menu clic droit et démarrage auto suivent le nouvel exe, et yt-dlp
         // (remplacé par la version de l'installeur, parfois plus ancienne) est revérifié tout de suite.
@@ -70,6 +71,8 @@ public partial class App : Application
         {
             Log(ex.Exception.ToString());
             ex.Handled = true;
+            // une erreur pendant la sortie ne doit jamais laisser un Prisme invisible qui bloque les lancements suivants
+            if (_exiting) { Log("sortie forcée après une erreur pendant la fermeture"); Environment.Exit(0); }
         };
 
         CreateTray();
@@ -458,10 +461,12 @@ public partial class App : Application
     {
         lock (LogLock) try
         {
-            Directory.CreateDirectory(Settings.Dir);
-            var path = Path.Combine(Settings.Dir, "prisme.log");
+            // %LOCALAPPDATA%\Prisme\journal.log, comme toutes les applis (l'installeur y écrit aussi)
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Prisme");
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, "journal.log");
             // au-delà de 1 Mo, l'ancien journal est gardé à côté (un seul) et on repart de zéro
-            if (new FileInfo(path) is { Exists: true, Length: > 1_000_000 }) File.Move(path, Path.Combine(Settings.Dir, "prisme.old.log"), true);
+            if (new FileInfo(path) is { Exists: true, Length: > 1_000_000 }) File.Move(path, Path.Combine(dir, "journal.old.log"), true);
             File.AppendAllText(path,$"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {msg}\n");
         }
         catch { }
