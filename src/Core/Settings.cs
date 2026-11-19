@@ -20,6 +20,7 @@ public class Settings
     public bool Gpu { get; set; }                 // encodage vidéo par la carte graphique : plus rapide, fichiers un peu plus lourds
     public DateTime LastEngineUpdate { get; set; }
     public string LastVersion { get; set; } = "";
+    public string UpdateTried { get; set; } = "";   // version déjà lancée en installation : jamais relancée toute seule si elle a échoué
 
     public static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Prisme");
     static string FilePath => Path.Combine(Dir, "settings.json");
@@ -30,7 +31,8 @@ public class Settings
         {
             var s = JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath)) ?? new Settings();
             // ancien défaut (Téléchargements tout court, 1.0) → Téléchargements\Prisme
-            if (string.IsNullOrWhiteSpace(s.DownloadDir) || !Directory.Exists(s.DownloadDir)
+            // un dossier absent (disque débranché) garde le choix de l'utilisateur : Downloader se replie pour cette fois
+            if (string.IsNullOrWhiteSpace(s.DownloadDir)
                 || string.Equals(Path.TrimEndingDirectorySeparator(s.DownloadDir), KnownDownloads(), StringComparison.OrdinalIgnoreCase))
                 s.DownloadDir = DefaultDownloadDir();
             return s;

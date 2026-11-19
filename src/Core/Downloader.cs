@@ -66,7 +66,8 @@ public static class Downloader
     public static async Task Run(Job job, Settings s)
     {
         var outDir = s.DownloadDir;
-        Directory.CreateDirectory(outDir);
+        // dossier choisi injoignable (disque débranché) : Téléchargements\Prisme pour cette fois, le réglage est gardé
+        try { Directory.CreateDirectory(outDir); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { outDir = Settings.DefaultDownloadDir(); }
         await UpdateEngine(s); // au plus une fois par jour, même si Prisme reste ouvert des semaines
         var temp = Path.Combine(Path.GetTempPath(), "prisme-dl-" + Guid.NewGuid().ToString("N"));
         try

@@ -137,7 +137,7 @@ public partial class App : Application
                 if ((int)p == last) return; last = (int)p;
                 Dispatcher.BeginInvoke(() => SetUpdate($"Téléchargement de la version {r.Version} ({r.Size / 1048576.0:0} Mo)… {last} %"));
             }, CancellationToken.None));
-            SetUpdate(Settings.AutoUpdate
+            SetUpdate(Settings.AutoUpdate && Settings.UpdateTried != r.Version.ToString()
                 ? $"Version {r.Version} prête : elle s'installera dès que Prisme sera rangé ou fermé."
                 : $"Version {r.Version} prête à installer.");
             if (Settings.Notify)
@@ -155,7 +155,8 @@ public partial class App : Application
     /// <summary>Installation automatique quand personne n'utilise Prisme : rangé près de l'horloge et sans tâche en cours.</summary>
     void TryAutoInstall()
     {
-        if (UpdateReady && Settings.AutoUpdate && _win is { IsVisible: false } && !Busy) ApplyUpdate("tray");
+        // une installation qui a échoué relance Prisme tel qu'il était : sans cette mémoire, elle repartait toutes les minutes
+        if (UpdateReady && Settings.AutoUpdate && Settings.UpdateTried != UpdateVersion?.ToString() && _win is { IsVisible: false } && !Busy) ApplyUpdate("tray");
     }
 
     /// <summary>Bouton « Mettre à jour » : relance Prisme une fois installé.</summary>
@@ -169,7 +170,7 @@ public partial class App : Application
 
     void ApplyUpdate(string relaunch)
     {
-        try { Updater.Install(_updateSetup, relaunch); }
+        try { Settings.UpdateTried = UpdateVersion?.ToString() ?? ""; Settings.Save(); Updater.Install(_updateSetup, relaunch); }
         catch (Exception ex) { Log("installation de la mise à jour : " + ex); SetUpdate("L'installation de la mise à jour a échoué."); _updateSetup = null; return; }
         foreach (var j in Conversions.Concat(Downloads).Where(j => j.IsActive)) j.Cts.Cancel();
         _exiting = true;
