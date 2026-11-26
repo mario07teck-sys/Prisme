@@ -19,6 +19,9 @@ description: Compiler Prisme, lancer l'autotest de toutes les conversions et fab
    - Notes de release : commencer par « Télécharger : `Prisme-Setup-<version>.exe` ci-dessous (installeur complet). Si Prisme est déjà installé, il se met à jour tout seul. »
    - Pousser aussi le code (`git push origin main`) et créer la release avec `gh release create v<version> --target main`.
 
+## Regarder l'écran sans le voir
+`Prisme.exe --capture fichier.png [bas]` (envoyé au Prisme déjà ouvert) dessine sa fenêtre dans une image, même écran éteint ; « bas » = pages défilées jusqu'en bas. L'aperçu vidéo (VLC, fenêtre à part) n'y figure pas. Les captures d'écran ordinaires de cette fenêtre sortent vides.
+
 ## Pièges connus
 - `vendor\` (moteurs) n'est pas versionné : s'il manque, lancer le skill `prisme-update-engines`.
 - Fichiers `.ps1` : les enregistrer en UTF-8 **avec BOM**, sinon Windows PowerShell 5.1 abîme les accents.

@@ -15,6 +15,39 @@
   <Window.Resources>
     <local:BoolVis x:Key="Vis"/>
 
+    <!-- un bloc de formats : des onglets (familles) s'il y en a beaucoup, puis les formats de l'onglet ouvert -->
+    <DataTemplate x:Key="GroupTpl">
+      <StackPanel Margin="0,0,0,6">
+        <TextBlock Style="{StaticResource Section}" Text="{Binding Header}"/>
+        <ItemsControl ItemsSource="{Binding Families}" Focusable="False" Margin="0,0,0,6"
+                      Visibility="{Binding HasTabs, Converter={StaticResource Vis}}">
+          <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <RadioButton Style="{StaticResource Chip}" Content="{Binding Name}" IsChecked="{Binding First, Mode=OneTime}" Checked="Family_Checked"
+                           GroupName="{Binding DataContext.Id, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                           Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ItemsControl}}"/>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <ItemsControl ItemsSource="{Binding Selected.Targets}" Focusable="False">
+          <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Button Style="{StaticResource Btn}" Margin="0,0,10,10" Padding="0" Click="Target_Click" MinWidth="118"
+                      Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ItemsControl}}">
+                <StackPanel Margin="16,11,16,11">
+                  <TextBlock Text="{Binding Label}" FontFamily="{StaticResource Display}" FontSize="16" FontWeight="SemiBold"/>
+                  <TextBlock Text="{Binding Hint}" FontSize="11.5" Foreground="{StaticResource Text3}" Margin="0,2,0,0"/>
+                </StackPanel>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </DataTemplate>
+
+
     <!-- une tâche de la file -->
     <DataTemplate x:Key="JobTemplate">
       <Border Style="{StaticResource CardBox}" Margin="0,0,0,10" Padding="16,13">
@@ -86,7 +119,7 @@
 
   <Grid x:Name="Root">
     <Grid.ColumnDefinitions>
-      <ColumnDefinition Width="232"/>
+      <ColumnDefinition x:Name="SideCol" Width="232"/>
       <ColumnDefinition Width="*"/>
     </Grid.ColumnDefinitions>
     <!-- halo d'ambiance -->
@@ -108,15 +141,21 @@
     </Ellipse>
 
 
-    <!-- ===== Barre latérale ===== -->
-    <Border Grid.Column="0" Background="{StaticResource Rail}" BorderBrush="{StaticResource Stroke}" BorderThickness="0,0,1,0">
-      <DockPanel Margin="16,18,16,18">
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="6,4,0,34">
+    <!-- ===== Barre latérale ===== entière, ou réduite aux icônes : elle se déroule alors au survol, par-dessus la page -->
+    <Border x:Name="Side" Grid.ColumnSpan="2" Panel.ZIndex="5" Width="232" HorizontalAlignment="Left" ClipToBounds="True"
+            Background="{StaticResource Rail}" BorderBrush="{StaticResource Stroke}" BorderThickness="0,0,1,0"
+            MouseEnter="Side_Hover" MouseLeave="Side_Hover">
+      <DockPanel x:Name="SideInner" Margin="16,18,16,18" Width="199" HorizontalAlignment="Left">
+        <DockPanel DockPanel.Dock="Top" Margin="6,4,0,34">
+          <Button x:Name="SidePin" DockPanel.Dock="Right" Style="{StaticResource IconBtn}" VerticalAlignment="Center" Click="SidePin_Click"
+                  WindowChrome.IsHitTestVisibleInChrome="True" ToolTip="Réduire le menu">
+            <Path x:Name="SidePinIcon" Style="{StaticResource Icon}" Data="{StaticResource IcMenuIn}" Width="16" Height="16"/>
+          </Button>
           <Image Source="Assets/logo.png" Width="34" Height="34" RenderOptions.BitmapScalingMode="HighQuality"/>
-          <TextBlock Text="Prisme" FontFamily="{StaticResource Display}" FontSize="22" FontWeight="SemiBold" Margin="11,0,0,1" VerticalAlignment="Center"/>
-        </StackPanel>
+          <TextBlock x:Name="SideTitle" Text="Prisme" FontFamily="{StaticResource Display}" FontSize="22" FontWeight="SemiBold" Margin="11,0,0,1" VerticalAlignment="Center"/>
+        </DockPanel>
 
-        <StackPanel DockPanel.Dock="Bottom">
+        <StackPanel x:Name="SideBottom" DockPanel.Dock="Bottom">
           <!-- nouvelle version téléchargée -->
           <Border x:Name="UpdateCard" Visibility="Collapsed" CornerRadius="14" Padding="1.5" Margin="0,0,0,12" Background="{StaticResource Spectrum}">
             <Border CornerRadius="13" Background="#16132A" Padding="14,12">
@@ -248,48 +287,7 @@
         <!-- formats de sortie -->
         <StackPanel Grid.Row="2" x:Name="TargetsPanel" Margin="0,22,0,0" Visibility="Collapsed">
           <!-- un bloc de formats par type de fichier (audio, vidéo, image…) -->
-          <ItemsControl x:Name="GroupsList">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate>
-                <StackPanel Margin="0,0,0,6">
-                  <TextBlock Style="{StaticResource Section}" Text="{Binding Header}"/>
-                  <!-- une ligne par famille de formats, son nom à gauche (rien si le type n'a qu'une famille) -->
-                  <ItemsControl ItemsSource="{Binding Families}" Focusable="False">
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate>
-                        <DockPanel>
-                          <TextBlock DockPanel.Dock="Left" Text="{Binding Name}" Width="104" FontSize="11" FontWeight="SemiBold"
-                                     Foreground="{StaticResource Text3}" Margin="2,18,0,0" TextWrapping="Wrap">
-                            <TextBlock.Style>
-                              <Style TargetType="TextBlock">
-                                <Style.Triggers>
-                                  <DataTrigger Binding="{Binding Name}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
-                                </Style.Triggers>
-                              </Style>
-                            </TextBlock.Style>
-                          </TextBlock>
-                          <ItemsControl ItemsSource="{Binding Targets}" Focusable="False">
-                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                              <DataTemplate>
-                                <Button Style="{StaticResource Btn}" Margin="0,0,10,10" Padding="0" Click="Target_Click" MinWidth="118"
-                                        Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=ItemsControl, AncestorLevel=2}}">
-                                  <StackPanel Margin="16,11,16,11">
-                                    <TextBlock Text="{Binding Label}" FontFamily="{StaticResource Display}" FontSize="16" FontWeight="SemiBold"/>
-                                    <TextBlock Text="{Binding Hint}" FontSize="11.5" Foreground="{StaticResource Text3}" Margin="0,2,0,0"/>
-                                  </StackPanel>
-                                </Button>
-                              </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                          </ItemsControl>
-                        </DockPanel>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </StackPanel>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
+          <ItemsControl x:Name="GroupsList" ItemTemplate="{StaticResource GroupTpl}"/>
         </StackPanel>
 
         <!-- file des conversions -->
@@ -306,9 +304,9 @@
       </ScrollViewer>
 
       <!-- ===== Page Retoucher ===== -->
-      <ScrollViewer x:Name="PageEdit" VerticalScrollBarVisibility="Auto" Visibility="Collapsed">
+      <ScrollViewer x:Name="PageEdit" VerticalScrollBarVisibility="Auto" Visibility="Collapsed" SizeChanged="PageEdit_Size">
         <ScrollViewer.RenderTransform><TranslateTransform/></ScrollViewer.RenderTransform>
-        <StackPanel Margin="44,40,40,24">
+        <StackPanel x:Name="EdPage" Margin="44,40,40,24">
           <TextBlock Style="{StaticResource H1}" Text="Retoucher"/>
           <TextBlock Style="{StaticResource Sub}" Text="Garde un extrait d'une musique ou d'une vidéo, assemble plusieurs sons en un seul, recadre ou redimensionne une image."/>
 
@@ -348,7 +346,7 @@
                 <Button DockPanel.Dock="Top" HorizontalAlignment="Right" Margin="0,6,6,0" Style="{StaticResource IconBtn}" Click="EdClose_Click" ToolTip="Fermer ce fichier">
                   <Path Style="{StaticResource Icon}" Data="{StaticResource IcClose}" Width="14" Height="14"/>
                 </Button>
-                <Grid x:Name="EdScreen" Height="320">
+                <Grid x:Name="EdScreen" Height="290" SizeChanged="EdScreen_Size">
                   <vlc:VideoView x:Name="EdVideo"/>
                   <StackPanel x:Name="EdAudioArt" HorizontalAlignment="Center" VerticalAlignment="Center">
                     <Grid Width="72" Height="72" HorizontalAlignment="Center">
@@ -362,49 +360,84 @@
                   </StackPanel>
                   <TextBlock x:Name="EdNoPreview" VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="20,0,20,14" TextWrapping="Wrap" TextAlignment="Center"
                              FontSize="12.5" Foreground="{StaticResource Text3}" Visibility="Collapsed"
-                             Text="Aperçu impossible pour ce format : place le début et la fin sur la frise ou tape les temps, la coupe marchera quand même."/>
+                             Text="Aperçu impossible pour ce format : tire les étiquettes Début et Fin ou tape les temps, la coupe marchera quand même."/>
                 </Grid>
                 </DockPanel>
               </Border>
-              <!-- frise : poignées blanches = début et fin, trait rose = lecture -->
-              <Grid x:Name="EdTimeline" Height="54" Margin="0,14,0,0" Background="Transparent" Cursor="Hand"
+              <!-- poignée : tirer pour agrandir ou réduire l'aperçu -->
+              <Border x:Name="EdGrip" Height="16" Background="Transparent" Cursor="SizeNS" ToolTip="Tire pour agrandir ou réduire l'aperçu · double-clic : taille automatique"
+                      MouseLeftButtonDown="EdGrip_Down" MouseMove="EdGrip_Move" MouseLeftButtonUp="EdGrip_Up">
+                <Border Width="46" Height="4" CornerRadius="2" Background="{StaticResource StrokeHi}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+              </Border>
+              <!-- frise, comme dans un logiciel de montage : vignettes de la vidéo (ou forme du son), cadre blanc = la partie gardée,
+                   ses deux bords se tirent, le reste est assombri ; le rond rose suit la lecture -->
+              <Grid x:Name="EdTimeline" Height="108" Background="Transparent" Cursor="Hand"
                     MouseLeftButtonDown="EdTimeline_Down" MouseMove="EdTimeline_Move" MouseLeftButtonUp="EdTimeline_Up" SizeChanged="EdTimeline_Size">
-                <Border Height="36" CornerRadius="10" Background="{StaticResource Card}" BorderBrush="{StaticResource Stroke}" BorderThickness="1"/>
+                <Grid Height="48" VerticalAlignment="Top" Margin="12,16,12,0">
+                  <Border x:Name="EdBarMask" CornerRadius="8" Background="{StaticResource Card}"/>
+                  <Grid>
+                    <Grid.OpacityMask><VisualBrush Visual="{Binding ElementName=EdBarMask}"/></Grid.OpacityMask>
+                    <UniformGrid x:Name="EdStrip" Rows="1"/>
+                    <Image x:Name="EdWave" Stretch="Fill" Margin="0,5"/>
+                  </Grid>
+                  <Border CornerRadius="8" BorderBrush="{StaticResource Stroke}" BorderThickness="1"/>
+                </Grid>
                 <Canvas>
-                  <Border x:Name="EdBand" Height="36" Canvas.Top="9" Background="#3DB565FF" BorderBrush="#B565FF" BorderThickness="0,2"/>
-                  <Border x:Name="EdHandleA" Width="12" Height="48" Canvas.Top="3" CornerRadius="6" Background="White" ToolTip="Début"/>
-                  <Border x:Name="EdHandleB" Width="12" Height="48" Canvas.Top="3" CornerRadius="6" Background="White" ToolTip="Fin"/>
-                  <Rectangle x:Name="EdHead" Width="2" Height="54" Fill="#FF4D7E" IsHitTestVisible="False"/>
+                  <Rectangle x:Name="EdDimA" Canvas.Left="12" Canvas.Top="16" Height="48" Fill="#B305050A" IsHitTestVisible="False"/>
+                  <Rectangle x:Name="EdDimB" Canvas.Top="16" Height="48" Fill="#B305050A" IsHitTestVisible="False"/>
+                  <Border x:Name="EdBand" Height="48" Canvas.Top="16" Background="#1FB565FF" BorderBrush="White" BorderThickness="0,3"/>
+                  <Border x:Name="EdHandleA" Width="12" Height="56" Canvas.Top="12" CornerRadius="6,0,0,6" Background="White">
+                    <Rectangle Width="2" Height="18" RadiusX="1" RadiusY="1" Fill="#6B6880"/>
+                  </Border>
+                  <Border x:Name="EdHandleB" Width="12" Height="56" Canvas.Top="12" CornerRadius="0,6,6,0" Background="White">
+                    <Rectangle Width="2" Height="18" RadiusX="1" RadiusY="1" Fill="#6B6880"/>
+                  </Border>
+                  <Border x:Name="EdTabA" MinWidth="92" Height="34" Canvas.Top="72" CornerRadius="9" Padding="10,0" Background="#1A1730" BorderBrush="White" BorderThickness="1.5"
+                          ToolTip="Tire cette étiquette pour déplacer le début">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                      <TextBlock Text="DÉBUT" FontSize="9.5" FontWeight="Bold" Foreground="{StaticResource Text2}" VerticalAlignment="Center" Margin="0,1,7,0"/>
+                      <TextBlock x:Name="EdTabAText" FontSize="13" FontWeight="SemiBold"/>
+                    </StackPanel>
+                  </Border>
+                  <Border x:Name="EdTabB" MinWidth="92" Height="34" Canvas.Top="72" CornerRadius="9" Padding="10,0" Background="#1A1730" BorderBrush="White" BorderThickness="1.5"
+                          ToolTip="Tire cette étiquette pour déplacer la fin">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                      <TextBlock Text="FIN" FontSize="9.5" FontWeight="Bold" Foreground="{StaticResource Text2}" VerticalAlignment="Center" Margin="0,1,7,0"/>
+                      <TextBlock x:Name="EdTabBText" FontSize="13" FontWeight="SemiBold"/>
+                    </StackPanel>
+                  </Border>
+                  <Grid x:Name="EdHead" Width="16" Height="68" IsHitTestVisible="False">
+                    <Rectangle Width="2" Fill="#FF4D7E" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+                    <Ellipse Width="16" Height="16" Fill="#FF4D7E" VerticalAlignment="Top"/>
+                  </Grid>
                 </Canvas>
               </Grid>
-              <DockPanel Margin="2,8,2,0">
-                <TextBlock x:Name="EdTotal" DockPanel.Dock="Right" FontSize="12.5" Foreground="{StaticResource Text3}"/>
-                <TextBlock x:Name="EdNow" FontSize="12.5" Foreground="{StaticResource Text2}"/>
-              </DockPanel>
-              <WrapPanel Margin="0,12,0,0">
-                <Button x:Name="EdPlayBtn" Style="{StaticResource Btn}" Margin="0,0,10,10" Click="EdPlay_Click" ToolTip="Lecture / pause (Espace)">
+              <!-- lecture à gauche, découpe à droite -->
+              <WrapPanel x:Name="EdPlayRow" Margin="0,10,0,0">
+                <Button x:Name="EdPlayBtn" Style="{StaticResource Btn}" Margin="0,0,10,10" MinWidth="112" Click="EdPlay_Click" ToolTip="Lecture / pause (Espace)">
                   <StackPanel Orientation="Horizontal">
                     <Path x:Name="EdPlayIcon" Style="{StaticResource Icon}" Data="{StaticResource IcPlay}" Width="15" Height="15"/>
                     <TextBlock x:Name="EdPlayText" Text="Lecture" Margin="8,0,0,0" FontSize="13.5"/>
                   </StackPanel>
                 </Button>
-                <Button x:Name="EdPlaySelBtn" Style="{StaticResource Btn}" Margin="0,0,10,10" Click="EdPlaySel_Click" Content="Écouter l'extrait" FontSize="13.5"/>
-                <Button x:Name="EdSetABtn" Style="{StaticResource Btn}" Margin="0,0,10,10" Click="EdSetStart_Click" Content="Début ici" FontSize="13.5" ToolTip="Le début de l'extrait passe à l'endroit écouté"/>
-                <Button x:Name="EdSetBBtn" Style="{StaticResource Btn}" Margin="0,0,10,10" Click="EdSetEnd_Click" Content="Fin ici" FontSize="13.5" ToolTip="La fin de l'extrait passe à l'endroit écouté"/>
+                <Button x:Name="EdPlaySelBtn" Style="{StaticResource Btn}" Margin="0,0,10,10" Click="EdPlaySel_Click" Content="Écouter l'extrait" FontSize="13.5"
+                        ToolTip="Joue seulement la partie colorée"/>
+                <TextBlock VerticalAlignment="Center" Margin="6,0,18,10" FontSize="13.5"><Run x:Name="EdNow" Foreground="{StaticResource Text}"/><Run x:Name="EdTotal" Foreground="{StaticResource Text3}"/></TextBlock>
+                <Rectangle Width="1" Height="26" Fill="{StaticResource Stroke}" Margin="0,0,16,10" VerticalAlignment="Center"/>
+                <Button x:Name="EdSetABtn" Style="{StaticResource Btn}" Margin="0,0,10,10" Click="EdSetStart_Click" Content="Commencer ici" FontSize="13.5"
+                        ToolTip="Le début de l'extrait vient là où tu es (le rond rose) · touche I"/>
+                <Button x:Name="EdSetBBtn" Style="{StaticResource Btn}" Margin="0,0,10,10" Click="EdSetEnd_Click" Content="Finir ici" FontSize="13.5"
+                        ToolTip="La fin de l'extrait vient là où tu es (le rond rose) · touche O"/>
+                <Button Style="{StaticResource Btn}" Margin="0,0,10,10" Click="EdKeepAll_Click" Content="Tout garder" FontSize="13.5"
+                        ToolTip="Remet le début et la fin aux deux bouts"/>
               </WrapPanel>
-              <WrapPanel Margin="0,6,0,0">
-                <StackPanel Margin="0,0,14,0">
-                  <TextBlock Style="{StaticResource Section}" Text="DÉBUT"/>
-                  <TextBox x:Name="EdStartBox" Style="{StaticResource Field}" Width="130" Height="44" Tag="0:00" LostFocus="EdTimeBox_Commit" KeyDown="EdTimeBox_Key"/>
-                </StackPanel>
-                <StackPanel Margin="0,0,14,0">
-                  <TextBlock Style="{StaticResource Section}" Text="FIN"/>
-                  <TextBox x:Name="EdEndBox" Style="{StaticResource Field}" Width="130" Height="44" LostFocus="EdTimeBox_Commit" KeyDown="EdTimeBox_Key"/>
-                </StackPanel>
-                <StackPanel>
-                  <TextBlock Style="{StaticResource Section}" Text="DURÉE DE L'EXTRAIT"/>
-                  <TextBlock x:Name="EdLen" FontFamily="{StaticResource Display}" FontSize="20" FontWeight="SemiBold" Margin="2,8,0,0"/>
-                </StackPanel>
+              <WrapPanel Margin="0,2,0,0">
+                <TextBlock Text="Ou tape les temps :" VerticalAlignment="Center" FontSize="12.5" Foreground="{StaticResource Text3}" Margin="2,0,12,8"/>
+                <TextBlock Text="début" VerticalAlignment="Center" FontSize="12.5" Foreground="{StaticResource Text2}" Margin="0,0,8,8"/>
+                <TextBox x:Name="EdStartBox" Style="{StaticResource Field}" Width="104" Height="38" Margin="0,0,16,8" Tag="0:00" LostFocus="EdTimeBox_Commit" KeyDown="EdTimeBox_Key"/>
+                <TextBlock Text="fin" VerticalAlignment="Center" FontSize="12.5" Foreground="{StaticResource Text2}" Margin="0,0,8,8"/>
+                <TextBox x:Name="EdEndBox" Style="{StaticResource Field}" Width="104" Height="38" Margin="0,0,16,8" LostFocus="EdTimeBox_Commit" KeyDown="EdTimeBox_Key"/>
+                <TextBlock x:Name="EdLen" VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,8"/>
               </WrapPanel>
               <!-- rotation (vidéo), volume, vitesse : appliqués à l'enregistrement -->
               <WrapPanel x:Name="EdRot" Margin="0,14,0,0">
@@ -496,20 +529,11 @@
               </StackPanel>
             </Grid>
 
-            <TextBlock Style="{StaticResource Section}" Text="ENREGISTRER EN" Margin="2,24,0,10"/>
-            <ItemsControl x:Name="EdTargets">
-              <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-              <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                  <Button Style="{StaticResource Btn}" Margin="0,0,10,10" Padding="0" Click="EdSave_Click" MinWidth="118">
-                    <StackPanel Margin="16,11,16,11">
-                      <TextBlock Text="{Binding Label}" FontFamily="{StaticResource Display}" FontSize="16" FontWeight="SemiBold"/>
-                      <TextBlock Text="{Binding Hint}" FontSize="11.5" Foreground="{StaticResource Text3}" Margin="0,2,0,0"/>
-                    </StackPanel>
-                  </Button>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
+            <Border x:Name="EdGripImg" Height="16" Background="Transparent" Cursor="SizeNS" ToolTip="Tire pour agrandir ou réduire l'image · double-clic : taille automatique"
+                    MouseLeftButtonDown="EdGrip_Down" MouseMove="EdGrip_Move" MouseLeftButtonUp="EdGrip_Up">
+              <Border Width="46" Height="4" CornerRadius="2" Background="{StaticResource StrokeHi}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ContentControl x:Name="EdTargets" ContentTemplate="{StaticResource GroupTpl}" Focusable="False" Margin="0,24,0,0"/>
             <TextBlock x:Name="EdError" Foreground="{StaticResource Err}" FontSize="13" Margin="2,2,0,0" Visibility="Collapsed" TextWrapping="Wrap"/>
             <!-- réglages du bouton GIF (servent aussi dans « Convertir ») -->
             <StackPanel x:Name="EdGif" Margin="0,16,0,0">

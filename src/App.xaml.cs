@@ -221,6 +221,7 @@ public partial class App : Application
     {
         if (args.Length == 0 || args[0] == "--show") { if (fromOther) ShowMain(); return; }
         if (args[0] == "--tray") return;
+        if (args[0] == "--capture" && args.Length >= 2) { _win.Capture(args[1], args.Length > 2 && args[2] == "bas"); return; }
         if (args[0] == "--download" && args.Length >= 2 && Downloader.IsUrl(args[1]))
         {   // Prisme.exe --download <lien> [best|1080|720|mp3]
             ShowMain(); _win.GoTo("download");

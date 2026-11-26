@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.ComponentModel;
+using System.IO;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -9,6 +11,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 using Prisme.Core;
 
@@ -42,6 +45,7 @@ public partial class MainWindow : Window
         AboutText.Text = $"Prisme {v.Major}.{v.Minor}.{v.Build} · gratuit, sans pub · © 2026 Mario Teck";
         LoadSettings();
         InitEditor();
+        InitSide();
         App.Current.UpdateChanged += () => Dispatcher.BeginInvoke(RefreshUpdate);
         RefreshUpdate();
 
@@ -142,13 +146,135 @@ public partial class MainWindow : Window
             var n = paths.Count > 1 ? $"{label}S ({paths.Count})" : label;
             var targets = Formats.TargetsFor(paths);
             if (g.Key == Kind.Audio && paths.Count > 1) targets.Add(new Target("assemble", "Assembler", "", "En un seul fichier, à la suite", Formats.Other));
-            return new TargetGroup(groups.Count > 1 ? $"CONVERTIR {n} EN" : "CONVERTIR EN", paths,
-                targets.GroupBy(t => t.Family).Select(f => new TargetFamily(f.Key, f.ToList())).ToList());
+            return new TargetGroup(groups.Count > 1 ? $"CONVERTIR {n} EN" : "CONVERTIR EN", paths, Formats.Tabs(g.Key, targets));
         }).ToList();
     }
 
-    public record TargetGroup(string Header, List<string> Paths, List<TargetFamily> Families);
-    public record TargetFamily(string Name, List<Target> Targets);
+    /// <summary>Un bloc de formats à l'écran : ses onglets (familles) et celui qui est ouvert.</summary>
+    public class TargetGroup : INotifyPropertyChanged
+    {
+        public TargetGroup(string header, List<string> paths, List<(string Name, List<Target> Targets)> tabs, bool edit = false)
+        {
+            Header = header; Paths = paths; Edit = edit;
+            Families = tabs.Select((t, i) => new TargetFamily(t.Name, t.Targets, i == 0)).ToList();
+            _selected = Families.FirstOrDefault();
+        }
+        public string Header { get; }
+        public List<string> Paths { get; }
+        public List<TargetFamily> Families { get; }
+        public bool Edit { get; }                                   // bloc « ENREGISTRER EN » de l'onglet Retoucher
+        public bool HasTabs => Families.Count > 1;
+        public string Id { get; } = Guid.NewGuid().ToString("N");   // les onglets d'un bloc s'excluent entre eux, pas ceux du voisin
+        TargetFamily _selected;
+        public TargetFamily Selected { get => _selected; set { _selected = value; PropertyChanged?.Invoke(this, new(nameof(Selected))); } }
+        public event PropertyChangedEventHandler PropertyChanged;
+    }
+    public record TargetFamily(string Name, List<Target> Targets, bool First = false);
+
+    // ---------- menu de gauche : entier, ou réduit aux icônes et déroulé au survol ----------
+
+    const double SideWide = 232, SideRail = 82;
+    bool _sideOpen = true, _sideClosing, _sideMute; // _sideMute : on vient de le réduire, il attend que la souris en sorte pour se redérouler
+    readonly System.Windows.Threading.DispatcherTimer _sideTimer = new() { Interval = TimeSpan.FromMilliseconds(180) };
+
+    /// <summary>Le menu réduit est déroulé par-dessus la page (la vidéo, fenêtre à part, passerait devant lui).</summary>
+    bool SideCovers => S.NavCollapsed && (_sideOpen || _sideClosing);
+
+    void InitSide()
+    {
+        // petit délai : frôler le bord ne déroule pas le menu, et il ne se referme pas dès que la souris dépasse d'un cheveu
+        _sideTimer.Tick += (_, _) =>
+        {
+            _sideTimer.Stop();
+            bool over = Side.IsMouseOver;
+            if (!over) _sideMute = false;
+            if (S.NavCollapsed) SideUnroll(over && !_sideMute);
+        };
+        ApplySide(animate: false);
+    }
+
+    void ApplySide(bool animate)
+    {
+        SideCol.Width = new GridLength(S.NavCollapsed ? SideRail : SideWide);
+        SidePinIcon.Data = (Geometry)FindResource(S.NavCollapsed ? "IcMenuOut" : "IcMenuIn");
+        SidePin.ToolTip = S.NavCollapsed ? "Garder le menu ouvert" : "Réduire le menu";
+        SideUnroll(!S.NavCollapsed, animate);
+        FitVideo();
+    }
+
+    void SideUnroll(bool open, bool animate = true)
+    {
+        if (!animate)
+        {
+            _sideOpen = open; _sideClosing = false;
+            Side.BeginAnimation(WidthProperty, null); Side.Width = open ? SideWide : SideRail;
+            SideLabels(open);
+            return;
+        }
+        if (open == _sideOpen) return;
+        _sideOpen = open; _sideClosing = !open;
+        if (open) SideLabels(true);
+        var a = new DoubleAnimation(open ? SideWide : SideRail, TimeSpan.FromMilliseconds(170)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+        if (!open) a.Completed += (_, _) => { if (_sideOpen) return; _sideClosing = false; SideLabels(false); FitVideo(); };
+        Side.BeginAnimation(WidthProperty, a);
+        FitVideo();
+    }
+
+    /// <summary>Réduit : seuls le logo et les icônes restent (les textes dépasseraient de la bande).</summary>
+    void SideLabels(bool show)
+    {
+        SideInner.Width = (show ? SideWide : SideRail) - 33;
+        foreach (var e in new UIElement[] { SideTitle, SidePin, SideBottom }
+                     .Concat(new[] { NavConvert, NavEdit, NavDownload, NavSettings }.Select(n => ((Panel)n.Content).Children[1])))
+            e.Visibility = Vis(show);
+    }
+
+    void Side_Hover(object sender, MouseEventArgs e) { if (S.NavCollapsed) { _sideTimer.Stop(); _sideTimer.Start(); } }
+
+    void SidePin_Click(object sender, RoutedEventArgs e)
+    {
+        S.NavCollapsed = !S.NavCollapsed; _sideMute = S.NavCollapsed;
+        try { S.Save(); } catch (Exception ex) { App.Log(ex.ToString()); }
+        ApplySide(animate: true);
+    }
+
+    void Family_Checked(object sender, RoutedEventArgs e)
+    {
+        var rb = (FrameworkElement)sender;
+        if (rb.Tag is TargetGroup g && rb.DataContext is TargetFamily f) g.Selected = f;
+    }
+
+    /// <summary>Pour vérifier l'écran sans le voir : « Prisme.exe --capture fichier.png [bas] » dessine la fenêtre dans
+    /// une image (l'aperçu vidéo de VLC, qui est une fenêtre à part, n'y figure pas). « bas » : pages défilées jusqu'en bas.</summary>
+    public void Capture(string path, bool bottom)
+    {
+        if (bottom) foreach (var sv in Descendants<ScrollViewer>(this)) sv.ScrollToEnd();
+        Dispatcher.BeginInvoke(() =>
+        {
+            var root = (FrameworkElement)Content; var dpi = VisualTreeHelper.GetDpi(this);
+            var bmp = new RenderTargetBitmap((int)(root.ActualWidth * dpi.DpiScaleX), (int)(root.ActualHeight * dpi.DpiScaleY),
+                96 * dpi.DpiScaleX, 96 * dpi.DpiScaleY, PixelFormats.Pbgra32);
+            var v = new DrawingVisual();   // le fond est celui de la fenêtre, pas du contenu : on le peint dessous
+            using (var dc = v.RenderOpen())
+            {
+                var r = new Rect(0, 0, root.ActualWidth, root.ActualHeight);
+                dc.DrawRectangle(Background, null, r); dc.DrawRectangle(new VisualBrush(root) { ViewboxUnits = BrushMappingMode.Absolute, Viewbox = r, Stretch = Stretch.None }, null, r);
+            }
+            bmp.Render(v);
+            var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bmp));
+            using var f = File.Create(path); png.Save(f);
+        }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+    }
+
+    static IEnumerable<T> Descendants<T>(DependencyObject o) where T : DependencyObject
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(o); i++)
+        {
+            var c = VisualTreeHelper.GetChild(o, i);
+            if (c is T t) yield return t;
+            foreach (var d in Descendants<T>(c)) yield return d;
+        }
+    }
 
     void DropZone_Click(object sender, RoutedEventArgs e)
     {
@@ -170,6 +296,7 @@ public partial class MainWindow : Window
     {
         var t = (Target)((FrameworkElement)sender).DataContext;
         var g = (TargetGroup)((FrameworkElement)sender).Tag;
+        if (g.Edit) { EdSave(t); return; }
         if (t.Id == "assemble") OpenMix(g.Paths); // l'ordre se règle dans l'onglet Retoucher
         else App.Current.StartConversions(g.Paths, t.Id);
         var done = new HashSet<string>(g.Paths);

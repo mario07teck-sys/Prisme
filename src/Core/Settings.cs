@@ -16,6 +16,9 @@ public class Settings
     public bool AutoUpdate { get; set; } = true; // installe seule les nouvelles versions publiées sur GitHub
     public int GifFps { get; set; } = 12;
     public string GifQuality { get; set; } = "normal"; // light, normal, high
+    public bool NavCollapsed { get; set; }      // menu de gauche réduit aux icônes (il se déroule au survol)
+    public double PreviewHeight { get; set; }   // hauteur de l'aperçu vidéo choisie à la poignée ; 0 = la place libre de la fenêtre
+    public double StageHeight { get; set; }     // pareil pour l'image à recadrer
     public bool DownloadSubs { get; set; }        // sous-titres de l'auteur rangés dans le MP4 téléchargé
     public bool Gpu { get; set; }                 // encodage vidéo par la carte graphique : plus rapide, fichiers un peu plus lourds
     public DateTime LastEngineUpdate { get; set; }

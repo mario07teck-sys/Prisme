@@ -16,6 +16,7 @@ Tout part de `src/Core/Formats.cs` : le menu clic droit, le sélecteur de fichie
 
 ## Format de sortie
 1. Ajouter un `Target(Id, Label, Ext, Hint)` dans la liste de la bonne famille. `Id` doit être unique dans la famille : c'est lui qui passe dans `--to <Id>` depuis le menu clic droit.
+   À l'écran, chaque famille (`Fam("NOM", …)`) est un onglet ; le premier onglet « Les plus utilisés » vient de `TopIds` (même fichier) : n'y ajouter le nouveau format que s'il est vraiment courant. L'autotest vérifie que tout format est rangé une fois.
 2. Brancher la conversion :
    - **FFmpeg** : ajouter un cas `(Kind.X, "id") => new[] { … }` dans `Converter.FfmpegArgs`. Les images avec transparence vers un format sans alpha doivent passer par le filtre `white`.
    - **LibreOffice** : si l'extension seule ne suffit pas, ajouter le nom du filtre d'export dans `Converter.LoFilter`. Les filtres se testent à la main avec `soffice --headless --convert-to "ext:Filtre" …`.

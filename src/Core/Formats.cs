@@ -27,7 +27,7 @@ public static class Formats
 
     static readonly Target[] AudioTargets =
     [
-        .. Fam("COURANT",
+        .. Fam("COMPRESSÉ",
             new("mp3", "MP3", "mp3", "Le plus compatible"),
             new("m4a", "M4A", "m4a", "AAC, Apple"),
             new("ogg", "OGG", "ogg", "Vorbis"),
@@ -150,6 +150,32 @@ public static class Formats
         new("vtt", "VTT", "vtt", "Web"),
         new("ass", "ASS", "ass", "Avec styles"),
     };
+
+    /// <summary>Les formats qu'on choisit le plus souvent, par type de fichier : le premier onglet de l'écran.</summary>
+    static readonly Dictionary<Kind, string[]> TopIds = new()
+    {
+        [Kind.Audio] = ["mp3", "m4a", "wav", "flac"],
+        [Kind.Video] = ["mp4", "mp4-small", "mp3", "gif"],
+        [Kind.Image] = ["jpg", "png", "webp", "pdf"],
+        [Kind.Pdf] = ["docx", "jpg", "pdf-split", "pdf-merge"],
+        [Kind.Text] = ["pdf", "docx", "txt"],
+    };
+
+    /// <summary>Rangement des formats pour l'écran : un onglet « Les plus utilisés », puis un onglet par famille.
+    /// Six formats ou moins, ou une seule famille : un seul groupe sans nom (pas d'onglets).</summary>
+    public static List<(string Name, List<Target> Targets)> Tabs(Kind kind, List<Target> targets)
+    {
+        var families = targets.GroupBy(t => t.Family).ToList();
+        if (targets.Count <= 6 || families.Count < 2) return [("", targets)];
+        var tabs = new List<(string, List<Target>)>();
+        if (TopIds.TryGetValue(kind, out var ids))
+        {
+            var top = ids.Select(id => targets.FirstOrDefault(t => t.Id == id)).Where(t => t != null).ToList();
+            if (top.Count > 1) tabs.Add(("Les plus utilisés", top));
+        }
+        tabs.AddRange(families.Select(f => (f.Key.Length > 1 ? f.Key[..1] + f.Key[1..].ToLowerInvariant() : f.Key, f.ToList())));
+        return tabs;
+    }
 
     public static string ExtOf(string path) => Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
 

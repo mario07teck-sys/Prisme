@@ -65,11 +65,22 @@ public partial class MainWindow
         App.Conversions.CollectionChanged += (_, _) => EdHeader.Visibility = Vis(App.Conversions.Count > 0);
         _edTimer.Tick += EdTick;
         MixTargets.ItemsSource = Formats.MergeTargets;
+        // raccourcis habituels d'un logiciel de montage : Espace = lecture, I / O = début / fin ici, flèches = 1 s (5 s avec Maj)
         PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Space && PageEdit.Visibility == Visibility.Visible && EdMedia.Visibility == Visibility.Visible
-                && EdPanel.Visibility == Visibility.Visible && Keyboard.FocusedElement is not TextBox)
-            { EdPlay_Click(null, null); e.Handled = true; }
+            if (PageEdit.Visibility != Visibility.Visible || EdMedia.Visibility != Visibility.Visible || EdPanel.Visibility != Visibility.Visible
+                || Keyboard.FocusedElement is TextBox || Keyboard.Modifiers is not (ModifierKeys.None or ModifierKeys.Shift)) return;
+            double pas = Keyboard.Modifiers == ModifierKeys.Shift ? 5 : 1;
+            switch (e.Key)
+            {
+                case Key.Space: EdPlay_Click(null, null); break;
+                case Key.I: EdSetStart_Click(null, null); break;
+                case Key.O: EdSetEnd_Click(null, null); break;
+                case Key.Left: if (_edDur > 0) Seek(_edPos - pas); break;
+                case Key.Right: if (_edDur > 0) Seek(_edPos + pas); break;
+                default: return;
+            }
+            e.Handled = true;
         };
     }
 
@@ -151,12 +162,16 @@ public partial class MainWindow
         EdMedia.Visibility = Vis(kind != Kind.Image);
         EdImage.Visibility = Vis(kind == Kind.Image);
         EdGif.Visibility = Vis(kind == Kind.Video);
+        EdGripImg.Visibility = Vis(kind == Kind.Image);
         foreach (var rb in EdGifFps.Children.OfType<RadioButton>()) rb.IsChecked = (string)rb.Tag == S.GifFps.ToString();
         foreach (var rb in EdGifQuality.Children.OfType<RadioButton>()) rb.IsChecked = (string)rb.Tag == S.GifQuality;
         var same = Formats.Find(path, "same");
         bool keeps = Formats.TargetsFor(path).All(t => t.Id != same.Id); // pas proposé = c'est le format d'origine
-        EdTargets.ItemsSource = new[] { Formats.Same(keeps ? $"Reste en {same.Label}" : $"En {same.Label}") }
-            .Concat(Formats.TargetsFor(path).Where(t => t.Id != "pdf-merge")).ToList();
+        // « Même format » en tête du premier onglet (le plus naturel après une retouche)
+        var tabs = Formats.Tabs(kind, Formats.TargetsFor(path).Where(t => t.Id != "pdf-merge").ToList());
+        tabs[0] = (tabs[0].Name, tabs[0].Targets.Prepend(Formats.Same(keeps ? $"Reste en {same.Label}" : $"En {same.Label}")).ToList());
+        EdTargets.Content = new TargetGroup("ENREGISTRER EN", new List<string> { path }, tabs, edit: true);
+        _ = Dispatcher.InvokeAsync(EdResize, DispatcherPriority.Loaded); // une fois la page mesurée : l'aperçu prend la place libre
         if (kind == Kind.Image) await LoadImage(path); else await LoadMedia(path, kind == Kind.Video);
     }
 
@@ -180,8 +195,10 @@ public partial class MainWindow
         EdRot.Visibility = Vis(video);
         foreach (var rb in new[] { EdRot, EdVol, EdSpd }.SelectMany(p => p.Children.OfType<RadioButton>()))
             rb.IsChecked = (string)rb.Tag is "rot:0" or "vol:1" or "spd:1";
-        EdScreen.Height = video ? 320 : 150;
-        _edVideo = video;
+        _edVideo = video; _edReady = false; _stripGen++;
+        EdStrip.Children.Clear(); EdWave.Source = null;
+        EdScreen.Height = !video ? 150 : S.PreviewHeight > 0 ? Math.Clamp(S.PreviewHeight, 160, 2000) : Math.Max(290, EdScreen.ActualHeight);
+        EdGrip.IsHitTestVisible = video; EdGrip.Child.Visibility = Vis(video);
         // la vidéo VLC est une fenêtre à part, rien ne se dessine par-dessus : on la réduit à 1 pixel tant que l'anneau tourne
         // (masquée, elle perdrait sa fenêtre et VLC ouvrirait la sienne)
         ShrinkVideo(true); EdAudioArt.Visibility = Visibility.Collapsed;
@@ -191,6 +208,7 @@ public partial class MainWindow
         var d = await Converter.Duration(path, CancellationToken.None);
         if (path != _edPath) return; // un autre fichier a été choisi entre-temps
         _edDur = d; _edB = d;
+        _ = LoadStrip(path, d, video);
         EdInfo.Text = d > 0 ? $"durée {Edit.Time(d)}" : "";
         if (d <= 0) { EdError.Text = "Durée illisible : ce fichier ne peut pas être coupé."; EdError.Visibility = Visibility.Visible; }
         UpdateTimeline(); UpdateTimes();
@@ -205,21 +223,118 @@ public partial class MainWindow
         _edTimer.Start();
     }
 
-    bool _edVideo;
+    bool _edVideo, _edReady; uint _vidW, _vidH;   // _edReady : l'aperçu a sa première image ; taille de la vidéo (0 = inconnue)
     void PreviewReady(bool ok)
     {
         EdLoading.Visibility = Visibility.Collapsed;
-        ShrinkVideo(!(ok && _edVideo));
-        uint w = 0, h = 0;
-        if (ok && _edVideo && _mp.Size(0, ref w, ref h) && w > 0 && h > 0)
-        {   // la vue VLC prend les proportions de la vidéo : pas de bandes claires autour (sa fenêtre n'est pas noire)
-            double boxW = EdScreen.ActualWidth - 2, boxH = EdScreen.ActualHeight - 2, k = Math.Min(boxW / w, boxH / h);
-            EdVideo.Width = Math.Floor(w * k); EdVideo.Height = Math.Floor(h * k);
-            EdVideo.HorizontalAlignment = HorizontalAlignment.Center; EdVideo.VerticalAlignment = VerticalAlignment.Center;
-        }
+        _edReady = ok; _vidW = _vidH = 0;
+        if (ok && _edVideo && !(_mp.Size(0, ref _vidW, ref _vidH) && _vidW > 0 && _vidH > 0)) _vidW = _vidH = 0;
+        FitVideo();
         EdAudioArt.Visibility = Vis(!ok || !_edVideo);
         EdNoPreview.Visibility = Vis(!ok);
         foreach (var b in new[] { EdPlayBtn, EdPlaySelBtn }) b.IsEnabled = ok;
+    }
+
+    /// <summary>Place la vue vidéo dans son cadre, à chaque fois que le cadre change de taille. Elle prend les proportions de la
+    /// vidéo (pas de bandes claires autour : sa fenêtre n'est pas noire) ; elle se réduit à 1 pixel tant qu'il n'y a rien à montrer,
+    /// ou quand le menu réduit se déroule par-dessus elle.</summary>
+    void FitVideo()
+    {
+        if (EdVideo == null) return;
+        bool show = _edReady && _edVideo;
+        double boxW = Math.Max(1, EdScreen.ActualWidth - 2), boxH = Math.Max(1, EdScreen.ActualHeight - 2), w = boxW, h = boxH;
+        if (show && _vidW > 0) { double k = Math.Min(boxW / _vidW, boxH / _vidH); w = Math.Max(1, Math.Floor(_vidW * k)); h = Math.Max(1, Math.Floor(_vidH * k)); }
+        if (show && SideCovers && EdScreen.TranslatePoint(new Point((boxW - w) / 2, 0), Root).X < SideWide + 2) show = false;
+        if (!show || _vidW == 0) { ShrinkVideo(!show); return; }
+        EdVideo.Width = w; EdVideo.Height = h;
+        EdVideo.HorizontalAlignment = HorizontalAlignment.Center; EdVideo.VerticalAlignment = VerticalAlignment.Center;
+    }
+
+    void EdScreen_Size(object sender, SizeChangedEventArgs e) => FitVideo();
+    void PageEdit_Size(object sender, SizeChangedEventArgs e) => EdResize();
+
+    /// <summary>Hauteur de l'aperçu : celle choisie avec la poignée, sinon la place libre de la fenêtre
+    /// (l'aperçu, la frise et les boutons de lecture tiennent à l'écran sans défiler).</summary>
+    void EdResize()
+    {
+        double view = PageEdit.ActualHeight;   // la page ne défile que de haut en bas : c'est sa hauteur visible
+        if (view <= 0 || EdPanel.Visibility != Visibility.Visible) return;
+        if (EdImage.Visibility == Visibility.Visible)
+        { EdStage.Height = S.StageHeight > 0 ? Math.Clamp(S.StageHeight, 160, 2000) : Math.Max(460, view - 260); return; }
+        if (!_edVideo || S.PreviewHeight > 0) return;
+        // tout ce qui n'est pas l'aperçu, du haut de la page au bas des boutons de lecture
+        double rest = EdPlayRow.ActualHeight <= 0 ? 400
+            : EdPlayRow.TranslatePoint(new Point(0, EdPlayRow.ActualHeight), EdPage).Y + EdPage.Margin.Top - EdScreen.ActualHeight;
+        EdScreen.Height = Math.Max(220, view - rest - 6);
+    }
+
+    double _gripY, _gripH;
+    FrameworkElement GripBox(object grip) => grip == EdGripImg ? EdStage : EdScreen;
+    void GripSet(object grip, double h)
+    {
+        if (grip == EdGripImg) S.StageHeight = h; else S.PreviewHeight = h;
+        if (h > 0) GripBox(grip).Height = h; else EdResize();
+    }
+
+    void EdGrip_Down(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2) { GripSet(sender, 0); try { S.Save(); } catch (Exception ex) { App.Log(ex.ToString()); } return; } // retour à la taille automatique
+        _gripY = e.GetPosition(this).Y; _gripH = GripBox(sender).ActualHeight;
+        ((UIElement)sender).CaptureMouse();
+    }
+
+    void EdGrip_Move(object sender, MouseEventArgs e)
+    {
+        if (((UIElement)sender).IsMouseCaptured) GripSet(sender, Math.Clamp(_gripH + e.GetPosition(this).Y - _gripY, 160, 2000));
+    }
+
+    void EdGrip_Up(object sender, MouseButtonEventArgs e)
+    {
+        if (!((UIElement)sender).IsMouseCaptured) return;
+        ((UIElement)sender).ReleaseMouseCapture();
+        try { S.Save(); } catch (Exception ex) { App.Log(ex.ToString()); }
+    }
+
+    int _stripGen;   // un autre fichier a été ouvert : la frise en cours de fabrication s'arrête
+
+    static BitmapImage LoadBitmap(string file)
+    {
+        var b = new BitmapImage();
+        b.BeginInit(); b.UriSource = new Uri(file); b.CacheOption = BitmapCacheOption.OnLoad; b.EndInit(); b.Freeze();
+        return b;
+    }
+
+    /// <summary>Habille la frise comme dans un logiciel de montage : douze vignettes pour une vidéo (elles arrivent une à une),
+    /// la forme du son pour une musique. Sans elles la frise marche pareil : un échec ici ne gêne rien.</summary>
+    async Task LoadStrip(string path, double dur, bool video)
+    {
+        int gen = _stripGen;
+        if (dur <= 0) return;
+        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"prisme-frise-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(dir);
+            if (!video)
+            {
+                var png = System.IO.Path.Combine(dir, "son.png");
+                await Engines.Run(Engines.Ffmpeg, new[] { "-hide_banner", "-nostdin", "-y", "-i", path, "-filter_complex",
+                    "aformat=channel_layouts=mono,showwavespic=s=1600x96:colors=0xC9A8FF:filter=peak", "-frames:v", "1", png }, null, null, CancellationToken.None);
+                if (gen == _stripGen && path == _edPath && File.Exists(png)) EdWave.Source = LoadBitmap(png);
+                return;
+            }
+            const int n = 12;
+            for (int i = 0; i < n && gen == _stripGen && path == _edPath; i++)
+            {   // « -ss » avant « -i » : saut direct, une vignette coûte une fraction de seconde même sur un long film
+                var jpg = System.IO.Path.Combine(dir, $"{i}.jpg");
+                var at = ((i + 0.5) * dur / n).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+                await Engines.Run(Engines.Ffmpeg, new[] { "-hide_banner", "-nostdin", "-y", "-ss", at, "-i", path, "-frames:v", "1", "-an",
+                    "-vf", "scale=-2:96", "-q:v", "4", jpg }, null, null, CancellationToken.None);
+                if (gen != _stripGen || path != _edPath) break;
+                EdStrip.Children.Add(new Image { Source = File.Exists(jpg) ? LoadBitmap(jpg) : null, Stretch = Stretch.UniformToFill, ClipToBounds = true });
+            }
+        }
+        catch (Exception e) { App.Log("frise : " + e.Message); }
+        finally { try { Directory.Delete(dir, true); } catch { } }
     }
 
     void ShrinkVideo(bool tiny)
@@ -310,53 +425,86 @@ public partial class MainWindow
 
     void EdSetStart_Click(object sender, RoutedEventArgs e) { _edA = Math.Clamp(_edPos, 0, Math.Max(0, _edB - 0.1)); UpdateTimeline(); UpdateTimes(); }
     void EdSetEnd_Click(object sender, RoutedEventArgs e) { _edB = Math.Clamp(_edPos, Math.Min(_edDur, _edA + 0.1), _edDur); UpdateTimeline(); UpdateTimes(); }
+    void EdKeepAll_Click(object sender, RoutedEventArgs e) { _edA = 0; _edB = _edDur; UpdateTimeline(); UpdateTimes(); }
 
-    double TlW => Math.Max(1, EdTimeline.ActualWidth - 12);
-    double TlX(double t) => 6 + (_edDur > 0 ? t / _edDur : 0) * TlW;
-    double TlT(double x) => Math.Clamp((x - 6) / TlW * _edDur, 0, _edDur);
+    double TlW => Math.Max(1, EdTimeline.ActualWidth - 24);   // 12 px de chaque côté : la place des deux poignées
+    double TlX(double t) => 12 + (_edDur > 0 ? t / _edDur : 0) * TlW;
+    double TlT(double x) => Math.Clamp((x - 12) / TlW * _edDur, 0, _edDur);
 
     void UpdateTimeline()
     {
-        Canvas.SetLeft(EdBand, TlX(_edA)); EdBand.Width = Math.Max(0, TlX(_edB) - TlX(_edA));
-        Canvas.SetLeft(EdHandleA, TlX(_edA) - 6); Canvas.SetLeft(EdHandleB, TlX(_edB) - 6);
+        double xa = TlX(_edA), xb = TlX(_edB), w = EdTimeline.ActualWidth;
+        Canvas.SetLeft(EdBand, xa); EdBand.Width = Math.Max(0, xb - xa);
+        EdDimA.Width = Math.Max(0, xa - 12); Canvas.SetLeft(EdDimB, xb); EdDimB.Width = Math.Max(0, w - 12 - xb);
+        Canvas.SetLeft(EdHandleA, xa - 12); Canvas.SetLeft(EdHandleB, xb);   // les poignées sont les deux bords du cadre, vers l'extérieur
+        double ca = xa - 6, cb = xb + 6;
+        // les étiquettes se placent sous leur poignée, sans sortir de la frise ni se chevaucher
+        EdTabAText.Text = Edit.Time(_edA); EdTabBText.Text = Edit.Time(_edB);
+        var inf = new Size(double.PositiveInfinity, double.PositiveInfinity);
+        EdTabA.Measure(inf); EdTabB.Measure(inf);
+        double wa = EdTabA.DesiredSize.Width, wb = EdTabB.DesiredSize.Width;
+        double la = Math.Clamp(ca - wa / 2, 0, Math.Max(0, w - wa)), lb = Math.Clamp(cb - wb / 2, 0, Math.Max(0, w - wb));
+        if (la + wa + 4 > lb)
+        {
+            double m = (xa + xb) / 2;
+            la = Math.Min(la, m - 2 - wa); lb = Math.Max(lb, m + 2);
+            if (la < 0) { la = 0; lb = Math.Max(lb, wa + 4); }
+            if (lb > w - wb) { lb = Math.Max(0, w - wb); la = Math.Max(0, Math.Min(la, lb - 4 - wa)); }
+        }
+        Canvas.SetLeft(EdTabA, la); Canvas.SetLeft(EdTabB, lb);
         UpdateHead();
     }
 
     void UpdateHead()
     {
-        Canvas.SetLeft(EdHead, TlX(_edPos) - 1);
-        EdNow.Text = $"Position : {Edit.Time(_edPos)}";
-        EdTotal.Text = _edDur > 0 ? Edit.Time(_edDur) : "";
+        Canvas.SetLeft(EdHead, TlX(_edPos) - 8);
+        EdNow.Text = Edit.Time(_edPos);
+        EdTotal.Text = _edDur > 0 ? " / " + Edit.Time(_edDur) : "";
     }
 
     void UpdateTimes()
     {
         if (!EdStartBox.IsKeyboardFocused) EdStartBox.Text = Edit.Time(_edA);
         if (!EdEndBox.IsKeyboardFocused) EdEndBox.Text = Edit.Time(_edB);
-        EdLen.Text = Edit.Time(Math.Max(0, _edB - _edA));
+        EdLen.Text = "extrait de " + Edit.Time(Math.Max(0, _edB - _edA));
     }
 
     void EdTimeline_Size(object sender, SizeChangedEventArgs e) => UpdateTimeline();
 
+    double _edGrab;       // écart entre la souris et la poignée au moment où on l'attrape : elle ne saute pas
+
+    /// <summary>1 = début, 2 = fin, 0 = aucune. Une poignée ne s'attrape que sur elle-même ou sur son étiquette :
+    /// partout ailleurs, cliquer déplace la lecture (avant, cliquer près d'une poignée la déplaçait par surprise).</summary>
+    int Poignee(Point p)
+    {
+        bool Dans(FrameworkElement tab) { double l = Canvas.GetLeft(tab); return p.X >= l && p.X <= l + tab.ActualWidth; }
+        if (p.Y >= 70) return Dans(EdTabA) ? 1 : Dans(EdTabB) ? 2 : 0;
+        if (p.Y < 10) return 0;
+        double xa = TlX(_edA), xb = TlX(_edB);
+        bool a = p.X >= xa - 16 && p.X <= xa + 2, b = p.X >= xb - 2 && p.X <= xb + 16;
+        return a && b ? (p.X < (xa + xb) / 2 ? 1 : 2) : a ? 1 : b ? 2 : 0;
+    }
+
     void EdTimeline_Down(object sender, MouseButtonEventArgs e)
     {
         if (_edDur <= 0) return;
-        var x = e.GetPosition(EdTimeline).X;
-        double dA = Math.Abs(x - TlX(_edA)), dB = Math.Abs(x - TlX(_edB));
-        _edDrag = dA <= 14 && dA <= dB ? 1 : dB <= 14 ? 2 : 3;
+        var p = e.GetPosition(EdTimeline);
+        int h = Poignee(p);
+        _edGrab = h == 1 ? p.X - TlX(_edA) : h == 2 ? p.X - TlX(_edB) : 0;
+        _edDrag = h == 0 ? 3 : h;
         EdTimeline.CaptureMouse();
         EdTimeline_Move(sender, e);
     }
 
     void EdTimeline_Move(object sender, MouseEventArgs e)
     {
-        var x = e.GetPosition(EdTimeline).X;
+        var p = e.GetPosition(EdTimeline);
         if (_edDrag == 0)
         {
-            EdTimeline.Cursor = _edDur > 0 && (Math.Abs(x - TlX(_edA)) <= 14 || Math.Abs(x - TlX(_edB)) <= 14) ? Cursors.SizeWE : Cursors.Hand;
+            EdTimeline.Cursor = _edDur > 0 && Poignee(p) != 0 ? Cursors.SizeWE : Cursors.Hand;
             return;
         }
-        var t = TlT(x);
+        var t = TlT(p.X - _edGrab);
         if (_edDrag == 1) { _edA = Math.Clamp(t, 0, Math.Max(0, _edB - 0.1)); Seek(_edA); }
         else if (_edDrag == 2) { _edB = Math.Clamp(t, Math.Min(_edDur, _edA + 0.1), _edDur); Seek(_edB); }
         else Seek(t);
@@ -582,9 +730,8 @@ public partial class MainWindow
         try { S.Save(); } catch (Exception ex) { App.Log(ex.ToString()); }
     }
 
-    void EdSave_Click(object sender, RoutedEventArgs e)
+    void EdSave(Target t)
     {
-        var t = (Target)((FrameworkElement)sender).DataContext;
         Edit edit;
         try { edit = BuildEdit(); }
         catch (Exception ex) { EdError.Text = ex.Message; EdError.Visibility = Visibility.Visible; return; }
@@ -592,7 +739,7 @@ public partial class MainWindow
         {
             EdError.Text = Formats.KindOf(_edPath) == Kind.Image
                 ? "Rien n'a changé : trace un cadre ou change la taille d'abord."
-                : "Rien n'a changé : déplace les poignées blanches de la frise pour choisir l'extrait, ou choisis une rotation, un volume, une vitesse.";
+                : "Rien n'a changé : tire les étiquettes Début et Fin de la frise pour choisir l'extrait, ou choisis une rotation, un volume, une vitesse.";
             EdError.Visibility = Visibility.Visible; return;
         }
         EdError.Visibility = Visibility.Collapsed;

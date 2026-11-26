@@ -78,6 +78,15 @@ public static class SelfTest
         Check(Formats.TargetsFor("a.jpeg").All(t => t.Id != "jpg"), "jpeg ≡ jpg");
         Check(Formats.TargetsFor(new[] { "a.mp3", "b.png" }).Count == 0, "audio + image : aucun format commun");
         Check(Formats.TargetsFor(new[] { "a.mp4", "b.mkv" }).Any(t => t.Id == "mp3"), "vidéos : formats communs");
+        // onglets de l'écran : chaque format est rangé une fois, et « Les plus utilisés » ne cite que des formats qui existent
+        Check(new[] { "a.aac", "a.mkv", "a.heic", "a.pdf", "a.rtf", "a.xlsx" }.All(f =>
+        {
+            var all = Formats.TargetsFor(f).ToList(); var tabs = Formats.Tabs(Formats.KindOf(f), all);
+            var fams = tabs.Where(x => x.Name != "Les plus utilisés").SelectMany(x => x.Targets).ToList();
+            return fams.Count == all.Count && all.All(fams.Contains) && tabs.All(x => x.Targets.Count > 0);
+        }), "onglets : chaque format rangé une fois");
+        Check(string.Join(" ", new[] { "a.aac", "a.mkv", "a.heic", "a.pdf", "a.rtf" }.Select(f => Formats.Tabs(Formats.KindOf(f), Formats.TargetsFor(f).ToList())[0].Targets.Count)) == "4 4 4 4 3",
+            "onglet « Les plus utilisés » complet");
         var dir = Path.Combine(Path.GetTempPath(), "prisme-selftest");
         if (Directory.Exists(dir)) Directory.Delete(dir, true);
         Directory.CreateDirectory(dir);
