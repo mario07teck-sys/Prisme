@@ -212,7 +212,7 @@ public static class Converter
                 double budget = mo * 8000 * 0.92 / (total / sp); // kbit/s, marge pour l'enveloppe MP4 (et les « Mo » qui sont des Mio)
                 int ak = budget > 1000 ? 128 : 64;
                 int vk = (int)Math.Min(8000, budget - ak); // une vidéo courte n'a pas besoin de remplir toute la place
-                if (vk < 150) throw new Exception($"Vidéo trop longue pour tenir dans {mo} Mo : garde un extrait (onglet Retoucher) ou choisis « MP4 léger »");
+                if (vk < 150) throw new Exception($"Vidéo trop longue pour tenir dans {mo} Mo : garde un extrait (onglet Découpe) ou choisis « MP4 léger »");
                 int side = vk >= 2500 ? 1080 : vk >= 1200 ? 720 : vk >= 600 ? 480 : 360;
                 // le petit côté est plafonné : une vidéo verticale garde sa netteté ; jamais agrandie, dimensions paires
                 AddFilter(args, "-vf", $"scale='if(gte(iw,ih),-2,trunc(min({side},iw)/2)*2)':'if(gte(iw,ih),trunc(min({side},ih)/2)*2,-2)'", first: false);
@@ -396,9 +396,17 @@ public static class Converter
         try
         {
             double total = 0;
-            foreach (var f in job.Inputs) total += await Duration(f, ct);
             var a = new List<string> { "-hide_banner", "-nostdin", "-y" };
-            foreach (var f in job.Inputs) a.AddRange(new[] { "-i", f });
+            foreach (var f in job.Inputs)
+            {   // chaque son peut n'être gardé qu'en extrait (réglé dans l'onglet Découpe) : -ss / -t avant son -i
+                var e = job.EditOf(f);
+                var full = await Duration(f, ct);
+                var end = e.End > 0 && (full <= 0 || e.End < full) ? e.End : full;
+                if (e.Trims && end - e.Start <= 0) throw new Exception($"L'extrait choisi de « {Path.GetFileName(f)} » est vide");
+                if (e.Trims) a.AddRange(new[] { "-ss", Inv(e.Start), "-t", Inv(end - e.Start) });
+                total += e.Trims ? end - e.Start : full;
+                a.AddRange(new[] { "-i", f });
+            }
             // chaque morceau ramené au même format (fréquence, stéréo) : sinon concat refuse des sons différents
             var graph = string.Concat(job.Inputs.Select((_, i) => $"[{i}:a:0]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}];"))
                         + string.Concat(job.Inputs.Select((_, i) => $"[a{i}]")) + $"concat=n={job.Inputs.Count}:v=0:a=1[out]";

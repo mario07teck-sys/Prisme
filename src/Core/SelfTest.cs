@@ -232,7 +232,7 @@ public static class SelfTest
         Check(!Updater.IsNewer(Rel("""{"tag_name":"v1.0.0","assets":[{"name":"Prisme-Setup-1.0.0.exe","browser_download_url":"https://github.com/a/b/Prisme-Setup-1.0.0.exe","size":1}]}""")),
               "mise à jour : version plus ancienne ignorée");
 
-        // --- onglet Retoucher : extrait, recadrage, taille, assemblage (contenu vérifié) ---
+        // --- onglet Découpe : extrait, recadrage, taille, assemblage (contenu vérifié) ---
         Check(Edit.TryParseTime("1:30.5", out var t1) && Math.Abs(t1 - 90.5) < 1e-9 && Edit.TryParseTime("90", out var t2) && t2 == 90
               && Edit.TryParseTime("1:02:03", out var t3) && t3 == 3723 && !Edit.TryParseTime("1::2", out _) && Edit.Time(90.5) == "1:30.5", "lecture des temps");
         Check(Formats.Find("a.mp3", "same")?.Id == "mp3" && Formats.Find("a.heic", "same")?.Id == "jpg" && Formats.Find("a.aac", "same")?.Id == "m4a"
@@ -303,6 +303,57 @@ public static class SelfTest
             Check((await Probe(crop2)).Contains("400x300"), "recadrage seul, vers PNG (400x300 attendu)");
         if (await TryEdit("transparent.png", "webp", new Edit(0, 0, 0, 0, 1, 1, 160, 100)) is { } small)
             Check((await Probe(small)).Contains("160x100"), "redimensionnement seul (160x100 attendu)");
+        // vidéo rognée : 640×360, on garde la moitié centrale (320×360) ; le rognage se fait avant la rotation (360×320)
+        var vidCrop = Edit.None with { CropX = 0.25, CropY = 0, CropW = 0.5, CropH = 1 };
+        if (await TryEdit("film.mp4", "same", vidCrop) is { } vc)
+            Check((await Probe(vc)).Contains("320x360") && Math.Abs(Dur(await Probe(vc)) - 3) < 0.25, "vidéo rognée (320x360 attendu), durée gardée");
+        if (await TryEdit("film.mp4", "same", vidCrop with { Rotate = 90 }) is { } vcr)
+            Check((await Probe(vcr)).Contains("360x320"), "vidéo rognée puis tournée de 90° (360x320 attendu)");
+        // photo 800×600 tournée / retournée : dimensions et contenu comparés à ceux de System.Drawing (même ordre : rotation, puis miroir)
+        static System.Drawing.Bitmap Pic(string f) { using var fs = File.OpenRead(f); using var b = new System.Drawing.Bitmap(fs); return new System.Drawing.Bitmap(b); }
+        static double Diff(System.Drawing.Bitmap a, System.Drawing.Bitmap b)
+        {
+            if (a.Width != b.Width || a.Height != b.Height) return 999;
+            double t = 0; int n = 0;
+            for (int y = 0; y < a.Height; y += 7) for (int x = 0; x < a.Width; x += 7)
+            { var p = a.GetPixel(x, y); var q = b.GetPixel(x, y); t += Math.Abs(p.R - q.R) + Math.Abs(p.G - q.G) + Math.Abs(p.B - q.B); n++; }
+            return t / n / 3;
+        }
+        if (await TryEdit("photo.jpg", "png", Edit.None) is { } p0)
+        {
+            using var orig = Pic(p0);
+            foreach (var (what, e, flip) in new[]
+            {
+                ("tournée de 90°", Edit.None with { Rotate = 90 }, System.Drawing.RotateFlipType.Rotate90FlipNone),
+                ("tournée de 270°", Edit.None with { Rotate = 270 }, System.Drawing.RotateFlipType.Rotate270FlipNone),
+                ("miroir gauche-droite", Edit.None with { FlipH = true }, System.Drawing.RotateFlipType.RotateNoneFlipX),
+                ("miroir haut-bas", Edit.None with { FlipV = true }, System.Drawing.RotateFlipType.RotateNoneFlipY),
+                ("tournée de 90° puis miroir", Edit.None with { Rotate = 90, FlipH = true }, System.Drawing.RotateFlipType.Rotate90FlipX),
+            })
+                if (await TryEdit("photo.jpg", "png", e) is { } po)
+                {
+                    using var got = Pic(po); using var want = (System.Drawing.Bitmap)orig.Clone(); want.RotateFlip(flip);
+                    var df = Diff(got, want);
+                    Check(got.Width == want.Width && got.Height == want.Height && df < 8, $"photo {what} : {got.Width}x{got.Height}, écart {df:0.0} avec l'attendu");
+                }
+        }
+        // le cadre se trace sur la photo tournée : moitié gauche de l'image tournée (600×800) = 300×800
+        if (await TryEdit("photo.jpg", "png", Edit.None with { Rotate = 90, CropX = 0, CropY = 0, CropW = 0.5, CropH = 1 }) is { } pr90)
+            Check((await Probe(pr90)).Contains("300x800"), "photo tournée de 90° puis recadrée (300x800 attendu)");
+        // un son de 3 s coupé à 2 s (garde 1 → 3 s) puis du 5.1 coupé à 1,5 s : l'assemblage garde les extraits, 2 + 1,5 s
+        var cutFiles = new List<string> { Path.Combine(dir, "son.wav"), Path.Combine(dir, "surround.ac3") };
+        var cutMix = new Job
+        {
+            Inputs = cutFiles, Target = Formats.Find(cutFiles[0], "merge-mp3"),
+            Edits = new Dictionary<string, Edit> { [cutFiles[0]] = new Edit(1, 0, 0, 0, 1, 1, 0, 0), [cutFiles[1]] = new Edit(0, 1.5, 0, 0, 1, 1, 0, 0) },
+        };
+        try
+        {
+            await Converter.Run(cutMix, s);
+            Check(Math.Abs(Dur(await Probe(cutMix.Output)) - 3.5) < 0.3, $"playlist de 2 sons coupés : {Dur(await Probe(cutMix.Output)):0.00} s (3,5 attendues)");
+        }
+        catch (Exception ex) { Check(false, "playlist avec extraits : " + ex.Message); }
+
         // un son stéréo de 3 s puis du 5.1 de 2 s : formats différents, mis bout à bout
         var mixFiles = new List<string> { Path.Combine(dir, "son.wav"), Path.Combine(dir, "surround.ac3") };
         var mix = new Job { Inputs = mixFiles, Target = Formats.Find(mixFiles[0], "merge-mp3") };

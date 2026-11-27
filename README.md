@@ -5,7 +5,9 @@ Convertisseur de fichiers, retouche et téléchargeur de vidéos pour Windows 10
 **[Télécharger la dernière version](https://github.com/mario07teck-sys/Prisme/releases/latest)** (`Prisme-Setup-x.y.z.exe`, installation sans droits administrateur). Prisme se met ensuite à jour tout seul.
 
 - **Glisser-déposer** dans la fenêtre, ou **clic droit → Convertir avec Prisme ▸** dans l'Explorateur.
-- **Retoucher** : garder un extrait d'une musique ou d'une vidéo (aperçu avec le moteur VLC intégré, frise à poignées), tourner une vidéo, changer le volume ou la vitesse, assembler plusieurs musiques en un seul fichier (album, playlist), recadrer une image (proportions carré, 16:9, story…) et la redimensionner.
+- **Découpe** : garder un extrait d'un son ou d'une vidéo (aperçu avec le moteur VLC intégré, frise à poignées), tourner et rogner une vidéo, changer le volume ou la vitesse, mettre plusieurs sons coupés à la suite (playlist), tourner, retourner, recadrer et redimensionner une photo.
+- **Extension Chrome / Edge / Brave** : clic droit sur une vidéo → « Télécharger avec Prisme » (bouton « Ajouter au navigateur » de la page Télécharger).
+- Pour un vrai montage (plusieurs pistes, transitions, textes) : [Kaléido](https://github.com/mario07teck-sys/Kaleido), de la même gamme.
 - **PDF scanné → texte** avec la reconnaissance de texte intégrée à Windows.
 - **Téléchargement** depuis un lien YouTube, X, TikTok, Instagram, Facebook, Vimeo, Twitch, SoundCloud… en MP4 (meilleure qualité, 1080p, 720p) ou MP3, avec un dossier au choix (par défaut « Téléchargements\Prisme »). Une playlist entière (YouTube, album SoundCloud ou Bandcamp) devient un téléchargement par élément ; sous-titres de l'auteur en option.
 - **Historique** : les tâches terminées restent affichées d'une session à l'autre ; « Effacer les terminées » le vide.
@@ -27,7 +29,7 @@ Convertisseur de fichiers, retouche et téléchargeur de vidéos pour Windows 10
 | Dessin | svg vsd vsdx pub cdr emf wmf odg | PDF, PNG, JPG |
 | Sous-titres | srt vtt ass ssa | SRT, VTT, ASS |
 
-Moteurs embarqués : FFmpeg (audio, vidéo, image), libVLC (aperçu de l'onglet Retoucher), yt-dlp (téléchargement, mis à jour automatiquement chaque jour), PDFsharp et le moteur PDF de Windows.
+Moteurs embarqués : FFmpeg (audio, vidéo, image), libVLC (aperçu de l'onglet Découpe), yt-dlp (téléchargement, mis à jour automatiquement chaque jour), PDFsharp et le moteur PDF de Windows.
 
 Documents : Microsoft Office pour le PDF s'il est installé, sinon LibreOffice allégé. LibreOffice n'est plus dans l'installeur : au premier document qui en a besoin, Prisme propose de le télécharger (≈ 360 Mo, une seule fois, MSI officiel dont la signature de The Document Foundation est vérifiée) et l'installe dans `%LOCALAPPDATA%\Prisme\office`, gardé d'une mise à jour à l'autre. Un LibreOffice déjà présent (ancienne version de Prisme, ou installé sur le PC) sert directement.
 
@@ -45,7 +47,7 @@ Installeur : moteur commun `..\installeur` (WPF .NET Framework 4.8, à l'image d
 
 Mises à jour : chaque version est une release GitHub `vX.Y.Z` avec l'installeur `Prisme-Setup-X.Y.Z.exe` joint ; la version installée la trouve (API GitHub), vérifie taille et SHA-256, puis l'installe en silence. Le numéro augmente à chaque livraison (1.2.0 → 1.2.1…).
 
-Ligne de commande : `Prisme.exe [fichiers…]`, `--edit <fichier>` (onglet Retoucher), `--to <format> <fichiers…>`, `--download <lien> [best|1080|720|mp3]`, `--tray`, `--register-shell`, `--unregister`, `--autostart on|off`, `--selftest`.
+Ligne de commande : `Prisme.exe [fichiers…]`, `--edit <fichier>` (onglet Découpe), `--to <format> <fichiers…>`, `--download <lien> [best|1080|720|mp3]`, `--tray`, `--register-shell`, `--unregister`, `--autostart on|off`, `--selftest`.
 
 Skills Claude du projet (`.claude/skills`) : `prisme-build`, `prisme-add-format`, `prisme-update-engines`.
 

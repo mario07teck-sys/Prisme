@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.IO;
@@ -20,7 +20,7 @@ namespace Prisme;
 public record FileItem(string Path, string Name, Geometry Icon)
 {
     public bool Editable => Formats.KindOf(Path) is Kind.Audio or Kind.Video or Kind.Image;
-    public string EditTip => Formats.KindOf(Path) == Kind.Image ? "Recadrer, redimensionner (onglet Retoucher)" : "Couper un extrait (onglet Retoucher)";
+    public string EditTip => Formats.KindOf(Path) == Kind.Image ? "Tourner, recadrer, redimensionner (onglet Découpe)" : "Couper un extrait (onglet Découpe)";
 }
 
 public partial class MainWindow : Window
@@ -91,7 +91,7 @@ public partial class MainWindow : Window
         if (show != PageEdit) EdPause();
         ((Storyboard)FindResource("PageIn")).Begin(show);
         if (show == PageSettings) RefreshEngineVersion();
-        if (show == PageDownload) { CheckClipboard(); UrlBox.Focus(); }
+        if (show == PageDownload) { CheckClipboard(); UrlBox.Focus(); RefreshExtension(); }
     }
 
     // ---------- fichiers à convertir ----------
@@ -145,7 +145,8 @@ public partial class MainWindow : Window
             };
             var n = paths.Count > 1 ? $"{label}S ({paths.Count})" : label;
             var targets = Formats.TargetsFor(paths);
-            if (g.Key == Kind.Audio && paths.Count > 1) targets.Add(new Target("assemble", "Assembler", "", "En un seul fichier, à la suite", Formats.Other));
+            // plusieurs sons : les mettre bout à bout, dans l'ordre où ils ont été ajoutés
+            if (g.Key == Kind.Audio && paths.Count > 1) targets.AddRange(Formats.MergeTargets.Select(t => t with { Family = "ASSEMBLER À LA SUITE" }));
             return new TargetGroup(groups.Count > 1 ? $"CONVERTIR {n} EN" : "CONVERTIR EN", paths, Formats.Tabs(g.Key, targets));
         }).ToList();
     }
@@ -162,7 +163,7 @@ public partial class MainWindow : Window
         public string Header { get; }
         public List<string> Paths { get; }
         public List<TargetFamily> Families { get; }
-        public bool Edit { get; }                                   // bloc « ENREGISTRER EN » de l'onglet Retoucher
+        public bool Edit { get; }                                   // bloc « ENREGISTRER EN » de l'onglet Découpe
         public bool HasTabs => Families.Count > 1;
         public string Id { get; } = Guid.NewGuid().ToString("N");   // les onglets d'un bloc s'excluent entre eux, pas ceux du voisin
         TargetFamily _selected;
@@ -245,7 +246,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Pour vérifier l'écran sans le voir : « Prisme.exe --capture fichier.png [bas] » dessine la fenêtre dans
-    /// une image (l'aperçu vidéo de VLC, qui est une fenêtre à part, n'y figure pas). « bas » : pages défilées jusqu'en bas.</summary>
+    /// une image. « bas » : pages défilées jusqu'en bas.</summary>
     public void Capture(string path, bool bottom)
     {
         if (bottom) foreach (var sv in Descendants<ScrollViewer>(this)) sv.ScrollToEnd();
@@ -297,8 +298,7 @@ public partial class MainWindow : Window
         var t = (Target)((FrameworkElement)sender).DataContext;
         var g = (TargetGroup)((FrameworkElement)sender).Tag;
         if (g.Edit) { EdSave(t); return; }
-        if (t.Id == "assemble") OpenMix(g.Paths); // l'ordre se règle dans l'onglet Retoucher
-        else App.Current.StartConversions(g.Paths, t.Id);
+        App.Current.StartConversions(g.Paths, t.Id);
         var done = new HashSet<string>(g.Paths);
         _batch = true;
         foreach (var f in _files.Where(f => done.Contains(f.Path)).ToList()) _files.Remove(f); // les autres types restent proposés
@@ -313,7 +313,7 @@ public partial class MainWindow : Window
         bool files = e.Data.GetDataPresent(DataFormats.FileDrop);
         bool text = !files && e.Data.GetDataPresent(DataFormats.UnicodeText) && Downloader.IsUrl((string)e.Data.GetData(DataFormats.UnicodeText));
         e.Effects = files || text ? DragDropEffects.Copy : DragDropEffects.None;
-        DropOverlayText.Text = text ? "Lâche pour télécharger" : PageEdit.Visibility == Visibility.Visible ? "Lâche pour retoucher" : "Lâche pour ajouter";
+        DropOverlayText.Text = text ? "Lâche pour télécharger" : PageEdit.Visibility == Visibility.Visible ? "Lâche pour découper" : "Lâche pour ajouter";
         DropOverlay.Visibility = Vis(files || text);
         e.Handled = true;
     }
@@ -419,6 +419,8 @@ public partial class MainWindow : Window
         SetAutoUpdate.IsChecked = S.AutoUpdate;
         SetSubs.IsChecked = S.DownloadSubs;
         SetGpu.IsChecked = S.Gpu;
+        foreach (var rb in GifFps.Children.OfType<RadioButton>()) rb.IsChecked = (string)rb.Tag == S.GifFps.ToString();
+        foreach (var rb in GifQuality.Children.OfType<RadioButton>()) rb.IsChecked = (string)rb.Tag == S.GifQuality;
         OutNext.IsChecked = S.SaveNextToSource || !Directory.Exists(S.OutputDir);
         OutFixed.IsChecked = !OutNext.IsChecked;
         ShowDirs();
@@ -454,6 +456,13 @@ public partial class MainWindow : Window
             ShowDirs();
         }
         catch (Exception ex) { App.Log(ex.ToString()); MessageBox.Show(this, ex.Message, "Prisme", MessageBoxButton.OK, MessageBoxImage.Warning); }
+    }
+
+    void Gif_Click(object sender, RoutedEventArgs e)
+    {
+        var tag = (string)((FrameworkElement)sender).Tag;
+        if (int.TryParse(tag, out var fps)) S.GifFps = fps; else S.GifQuality = tag;
+        try { S.Save(); } catch (Exception ex) { App.Log(ex.ToString()); }
     }
 
     void OutFixed_Click(object sender, RoutedEventArgs e)
@@ -508,6 +517,90 @@ public partial class MainWindow : Window
         UpdateCheckBtn.IsEnabled = false;
         await App.Current.CheckUpdatesNow();
         UpdateCheckBtn.IsEnabled = true;
+    }
+
+    // ---------- extension du navigateur (clic droit sur une vidéo → Prisme) ----------
+
+    readonly System.Windows.Threading.DispatcherTimer _extTimer = new() { Interval = TimeSpan.FromSeconds(1.5) };
+    bool _extDone;
+
+    async void RefreshExtension()
+    {
+        bool ok = await Task.Run(Browser.ExtensionInstalled);
+        ExtCardIcon.Data = (Geometry)FindResource(ok ? "IcCheck" : "IcBrowser");
+        ExtTitle.Text = ok ? "Clic droit dans le navigateur : prêt" : "Clic droit dans Chrome";
+        ExtText.Text = ok
+            ? "Clic droit sur une vidéo → « Télécharger avec Prisme ». Elle arrive dans le dossier ci-dessus ; les autres téléchargements du navigateur ne changent pas."
+            : "Avec l'extension Prisme (Chrome, Edge ou Brave) : clic droit sur une vidéo → « Télécharger avec Prisme ».";
+        ExtBtnText.Text = ok ? "Revoir comment faire" : "Ajouter au navigateur";
+    }
+
+    void AddExtension_Click(object sender, RoutedEventArgs e)
+    {
+        var b = Browser.Find();
+        ExtIcon.Data = (Geometry)FindResource("IcBrowser");
+        ExtSteps.Visibility = ExtWait.Visibility = ExtButtons.Visibility = Vis(b != null);
+        if (b == null)
+        {
+            ExtOvTitle.Text = "Aucun navigateur compatible trouvé";
+            ExtOvText.Text = "L'extension marche avec Google Chrome, Microsoft Edge et Brave. Installe l'un d'eux, puis reviens ici.";
+            ExtButtons.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            ExtOvTitle.Text = $"Ajouter Prisme à {b.Value.Name}";
+            ExtOvText.Text = $"Prisme vient d'ouvrir {b.Value.Name} et le dossier de l'extension. Deux gestes, une seule fois :";
+            if (!Browser.ExtensionInstalled()) OpenExtensionPlaces(); // déjà ajoutée : on montre seulement les étapes
+        }
+        _extDone = false;
+        ExtOverlay.Visibility = Visibility.Visible;
+        ExtOverlay.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.18)));
+        ((Storyboard)FindResource("PageIn")).Begin(ExtCard);
+        if (b == null) return;
+        _extTimer.Tick -= ExtTick; _extTimer.Tick += ExtTick;
+        _extTimer.Start();
+    }
+
+    static async void OpenExtensionPlaces()
+    {
+        var b = Browser.Find();
+        if (b == null) return;
+        try
+        {
+            // le navigateur refuse d'ouvrir sa page chrome://extensions à la demande d'un programme : on copie l'adresse, à coller
+            Clipboard.SetText(b.Value.Page);
+            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{Browser.ExtensionDir}\"");
+            await Task.Delay(2500); // l'Explorateur met 1 à 2 s à paraître : le navigateur, ouvert après, reste devant et a le clavier
+            System.Diagnostics.Process.Start(b.Value.Exe, "--new-window");
+        }
+        catch (Exception ex) { App.Log("extension : " + ex); }
+    }
+
+    void ExtReopen_Click(object sender, RoutedEventArgs e) => OpenExtensionPlaces();
+
+    async void ExtTick(object sender, EventArgs e)
+    {
+        if (_extDone || !await Task.Run(Browser.ExtensionInstalled) || _extDone || ExtOverlay.Visibility != Visibility.Visible) return;
+        _extDone = true; _extTimer.Stop();
+        ExtIcon.Data = (Geometry)FindResource("IcCheck");
+        var pop = new DoubleAnimation(0.3, 1, TimeSpan.FromSeconds(0.45)) { EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.6 } };
+        ExtIcon.RenderTransform.BeginAnimation(ScaleTransform.ScaleXProperty, pop);
+        ExtIcon.RenderTransform.BeginAnimation(ScaleTransform.ScaleYProperty, pop);
+        ExtOvTitle.Text = "L'extension est ajoutée";
+        ExtOvText.Text = "Clic droit sur une vidéo → « Télécharger avec Prisme ». Les vidéos arrivent dans " + S.DownloadDir + ".";
+        ExtSteps.Visibility = ExtWait.Visibility = Visibility.Collapsed;
+        RefreshExtension();
+        await Task.Delay(2600);
+        ExtClose_Click(null, null);
+    }
+
+    void ExtClose_Click(object sender, RoutedEventArgs e)
+    {
+        _extTimer.Stop();
+        if (ExtOverlay.Visibility != Visibility.Visible) return;
+        var fade = new DoubleAnimation(0, TimeSpan.FromSeconds(0.18));
+        fade.Completed += (_, _) => ExtOverlay.Visibility = Visibility.Collapsed;
+        ExtOverlay.BeginAnimation(OpacityProperty, fade);
     }
 
     // ---------- LibreOffice à télécharger (premier document qui en a besoin) ----------

@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -12,10 +12,10 @@ using VlcPlayer = LibVLCSharp.Shared.MediaPlayer;
 
 namespace Prisme;
 
-public record MixItem(string Path, string Name, string Length, string Number);
+public record MixItem(string Path, string Name, string Length, string Number, string Cut);
 
-/// <summary>Onglet Retoucher : extrait d'un son ou d'une vidéo (aperçu VLC), recadrage et taille d'une image,
-/// assemblage de plusieurs sons. Le travail lui-même passe par la file de conversion habituelle.</summary>
+/// <summary>Onglet Découpe : extrait d'un son ou d'une vidéo (aperçu VLC), recadrage et taille d'une image,
+/// playlist de plusieurs sons (chacun peut être coupé), rotation, miroir et rognage. Le travail lui-même passe par la file de conversion habituelle.</summary>
 public partial class MainWindow
 {
     string _edPath;
@@ -54,6 +54,14 @@ public partial class MainWindow
     double _sx = 1, _sy = 1;        // taille de sortie / taille recadrée
     int _cropMode; Point _from; Rect _cropFrom; bool _sizeSync;
 
+    BitmapSource _imSrc;            // image d'origine (photo, ou image fixe d'une vidéo en cours de rognage)
+    bool _flipH, _flipV;            // photo : miroirs, appliqués après la rotation _edRot
+    Rect _vidCrop = new(0, 0, 1, 1); // vidéo : rognage choisi, en fractions de l'image d'origine
+    string _vidCropPx = "";
+    bool _vcMode;                   // l'écran montre l'image fixe de la vidéo pour la rogner
+
+    readonly Dictionary<string, (double A, double B)> _mixCut = new(StringComparer.OrdinalIgnoreCase); // extrait gardé de chaque son de la playlist (B = 0 : jusqu'à la fin)
+    bool _mixReturn;                // un son de la playlist est ouvert pour être coupé : « Valider » y retourne
     readonly List<string> _mixPaths = new();
     readonly Dictionary<string, double> _mixDur = new(StringComparer.OrdinalIgnoreCase);
 
@@ -84,7 +92,7 @@ public partial class MainWindow
         };
     }
 
-    /// <summary>Ouvre un fichier (ou plusieurs musiques à assembler) dans l'onglet Retoucher.</summary>
+    /// <summary>Ouvre un fichier (ou plusieurs musiques à assembler) dans l'onglet Découpe.</summary>
     public void OpenInEditor(string path) => EditFiles(new[] { path });
     public void EditFiles(IEnumerable<string> paths) { GoTo("edit"); EdLoad(paths); }
     void OpenMix(IEnumerable<string> paths) { GoTo("edit"); EdLoad(paths); }
@@ -94,13 +102,15 @@ public partial class MainWindow
     void EdLoad(IEnumerable<string> paths, bool append = false)
     {
         var files = Expand(paths).Where(p => Formats.KindOf(p) != Kind.Unknown).ToList();
+        _mixReturn = false;
+        if (!append) PageEdit.ScrollToTop(); // un nouveau fichier s'ouvre en haut de la page, pas là où on avait défilé
         var audio = files.Where(p => Formats.KindOf(p) == Kind.Audio).ToList();
         EdDropError.Visibility = Visibility.Collapsed;
         bool mixing = MixPanel.Visibility == Visibility.Visible;
         append &= mixing;
         if (audio.Count >= 2 || (append && audio.Count > 0 && audio.Count == files.Count))
         {
-            if (!append) _mixPaths.Clear();
+            if (!append) { _mixPaths.Clear(); _mixCut.Clear(); }
             foreach (var p in audio.OrderBy(p => System.IO.Path.GetFileName(p), Comparer<string>.Create(StrCmpLogicalW)))
                 if (!_mixPaths.Contains(p, StringComparer.OrdinalIgnoreCase)) _mixPaths.Add(p);
             ShowEditMode(mix: true);
@@ -112,7 +122,7 @@ public partial class MainWindow
         {
             if (EdPanel.Visibility != Visibility.Visible && !mixing)
             {
-                EdDropError.Text = "Ici, on retouche les musiques, les vidéos et les images. Les autres fichiers se convertissent dans « Convertir ».";
+                EdDropError.Text = "Ici, on découpe les musiques, les vidéos et les images. Les autres fichiers se convertissent dans « Convertir ».";
                 EdDropError.Visibility = Visibility.Visible;
             }
             return;
@@ -133,7 +143,7 @@ public partial class MainWindow
         var exts = Formats.AudioExts.Concat(Formats.VideoExts).Concat(Formats.ImageExts).Select(x => "*." + x);
         var dlg = new OpenFileDialog
         {
-            Multiselect = true, Title = "Choisir un fichier à retoucher (ou plusieurs musiques à assembler)",
+            Multiselect = true, Title = "Choisir un fichier à découper (ou plusieurs musiques à mettre à la suite)",
             Filter = "Musiques, vidéos, images|" + string.Join(";", exts) + "|Tous les fichiers|*.*",
         };
         if (dlg.ShowDialog(this) == true) EdLoad(dlg.FileNames, append: true); // « + Ajouter » n'existe que dans l'assemblage
@@ -143,10 +153,16 @@ public partial class MainWindow
 
     void EdClose_Click(object sender, RoutedEventArgs e)
     {
-        _edPath = null; // les chargements encore en cours voient qu'un autre « fichier » a été choisi et s'arrêtent
+        if (_mixReturn) { MixBack(false); return; } // la croix d'un son de la playlist : retour sans changer son extrait
+        CloseFile();
         ShowEditMode(mix: null);
+    }
+
+    void CloseFile()
+    {
+        _edPath = null; // les chargements encore en cours voient qu'un autre « fichier » a été choisi et s'arrêtent
         if (_mp != null) { var mp = _mp; _ = Vlc(() => { mp.Stop(); mp.Media = null; }); } // VLC lâche le fichier : il peut être déplacé ou supprimé
-        EdPic.Source = null; _imW = _imH = 0;
+        EdPic.Source = null; _imSrc = null; _imW = _imH = 0;
         EdError.Visibility = Visibility.Collapsed;
     }
 
@@ -161,10 +177,14 @@ public partial class MainWindow
         EdInfo.Text = ""; EdError.Visibility = Visibility.Collapsed;
         EdMedia.Visibility = Vis(kind != Kind.Image);
         EdImage.Visibility = Vis(kind == Kind.Image);
-        EdGif.Visibility = Vis(kind == Kind.Video);
         EdGripImg.Visibility = Vis(kind == Kind.Image);
-        foreach (var rb in EdGifFps.Children.OfType<RadioButton>()) rb.IsChecked = (string)rb.Tag == S.GifFps.ToString();
-        foreach (var rb in EdGifQuality.Children.OfType<RadioButton>()) rb.IsChecked = (string)rb.Tag == S.GifQuality;
+        // rognage d'une vidéo fini ou jamais commencé ; photo : tourner / retourner, taille ; son : « à la suite »
+        _vcMode = false; _vidCrop = new Rect(0, 0, 1, 1); ShowVidCrop();
+        EdOrient.Visibility = Vis(kind == Kind.Image); EdSizePanel.Visibility = Visibility.Visible;
+        EdVidCropBtns.Visibility = Visibility.Collapsed; EdStageClose.Visibility = Visibility.Visible;
+        EdOther.Visibility = Vis(!_mixReturn); EdBackMix.Visibility = Vis(_mixReturn);
+        EdAddNext.Visibility = Vis(kind == Kind.Audio && !_mixReturn);
+        EdTargets.Visibility = Vis(!_mixReturn);
         var same = Formats.Find(path, "same");
         bool keeps = Formats.TargetsFor(path).All(t => t.Id != same.Id); // pas proposé = c'est le format d'origine
         // « Même format » en tête du premier onglet (le plus naturel après une retouche)
@@ -192,7 +212,8 @@ public partial class MainWindow
         _edDur = _edA = _edB = _edPos = 0; _edPending = -1; _edSel = false;
         _edRot = 0; _edVol = _edSpeed = 1;
         if (_mp != null) { _mp.Volume = 100; _mp.SetRate(1); }
-        EdRot.Visibility = Vis(video);
+        EdRot.Visibility = EdCropRow.Visibility = Vis(video);
+        EdVol.Visibility = EdSpd.Visibility = Vis(!_mixReturn); // un son de la playlist : seul l'extrait compte
         foreach (var rb in new[] { EdRot, EdVol, EdSpd }.SelectMany(p => p.Children.OfType<RadioButton>()))
             rb.IsChecked = (string)rb.Tag is "rot:0" or "vol:1" or "spd:1";
         _edVideo = video; _edReady = false; _stripGen++;
@@ -208,6 +229,7 @@ public partial class MainWindow
         var d = await Converter.Duration(path, CancellationToken.None);
         if (path != _edPath) return; // un autre fichier a été choisi entre-temps
         _edDur = d; _edB = d;
+        if (_mixCut.TryGetValue(path, out var cut)) { _edA = Math.Min(cut.A, d); _edB = cut.B > 0 ? Math.Min(cut.B, d) : d; _edPos = _edA; } // l'extrait déjà choisi
         _ = LoadStrip(path, d, video);
         EdInfo.Text = d > 0 ? $"durée {Edit.Time(d)}" : "";
         if (d <= 0) { EdError.Text = "Durée illisible : ce fichier ne peut pas être coupé."; EdError.Visibility = Visibility.Visible; }
@@ -260,7 +282,7 @@ public partial class MainWindow
         double view = PageEdit.ActualHeight;   // la page ne défile que de haut en bas : c'est sa hauteur visible
         if (view <= 0 || EdPanel.Visibility != Visibility.Visible) return;
         if (EdImage.Visibility == Visibility.Visible)
-        { EdStage.Height = S.StageHeight > 0 ? Math.Clamp(S.StageHeight, 160, 2000) : Math.Max(460, view - 260); return; }
+        { EdStage.Height = S.StageHeight > 0 ? Math.Clamp(S.StageHeight, 160, 2000) : Math.Max(360, view - 260); return; }
         if (!_edVideo || S.PreviewHeight > 0) return;
         // tout ce qui n'est pas l'aperçu, du haut de la page au bas des boutons de lecture
         double rest = EdPlayRow.ActualHeight <= 0 ? 400
@@ -545,10 +567,8 @@ public partial class MainWindow
             if (!File.Exists(tmp)) { EdPicMsg.Text = "Image illisible ou endommagée"; return; }
             var bmp = new BitmapImage();
             bmp.BeginInit(); bmp.UriSource = new Uri(tmp); bmp.CacheOption = BitmapCacheOption.OnLoad; bmp.EndInit(); bmp.Freeze();
-            _imW = bmp.PixelWidth; _imH = bmp.PixelHeight;
-            EdPic.Source = bmp; EdPicMsg.Text = "";
-            EdInfo.Text = $"{_imW} × {_imH} px";
-            EdReset_Click(null, null);
+            _imSrc = bmp; _edRot = 0; _flipH = _flipV = false;
+            ApplyOrient();
         }
         catch (Exception e) { App.Log(e.ToString()); EdPicMsg.Text = "Image illisible ou endommagée"; }
         finally
@@ -556,6 +576,35 @@ public partial class MainWindow
             try { File.Delete(tmp); } catch { }
             if (path == _edPath) EdPicLoading.Visibility = Visibility.Collapsed;
         }
+    }
+
+    /// <summary>Montre la photo tournée puis retournée (même ordre que Edit.ImageFilter) : le cadre se trace sur ce qu'on voit.</summary>
+    void ApplyOrient()
+    {
+        if (_imSrc == null) return;
+        BitmapSource b = _imSrc;
+        if (_edRot != 0) b = new TransformedBitmap(b, new RotateTransform(_edRot));
+        if (_flipH || _flipV) b = new TransformedBitmap(b, new ScaleTransform(_flipH ? -1 : 1, _flipV ? -1 : 1));
+        EdPic.Source = b; EdPicMsg.Text = "";
+        _imW = b.PixelWidth; _imH = b.PixelHeight;
+        EdInfo.Text = $"{_imW} × {_imH} px";
+        EdReset_Click(null, null); // l'image a changé de sens : le cadre repart sur toute l'image
+    }
+
+    void EdTurn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_imSrc == null) return;
+        int q = int.Parse((string)((FrameworkElement)sender).Tag);
+        // un seul miroir actif : tourner l'image vue tourne l'image d'origine dans l'autre sens
+        _edRot = ((_edRot + (_flipH != _flipV ? -q : q)) % 360 + 360) % 360;
+        ApplyOrient();
+    }
+
+    void EdFlip_Click(object sender, RoutedEventArgs e)
+    {
+        if (_imSrc == null) return;
+        if ((string)((FrameworkElement)sender).Tag == "h") _flipH = !_flipH; else _flipV = !_flipV;
+        ApplyOrient();
     }
 
     void EdStage_Size(object sender, SizeChangedEventArgs e) => DrawCrop();
@@ -589,6 +638,7 @@ public partial class MainWindow
         _sizeSync = false;
         bool cropped = CropW != _imW || CropH != _imH;
         EdSizeInfo.Text = $"Original : {_imW} × {_imH} px" + (cropped ? $"\nAprès recadrage : {CropW} × {CropH} px" : "");
+        EdVidCropSize.Text = cropped ? $"Image gardée : {CropW} × {CropH} px (sur {_imW} × {_imH})" : "Trace un cadre sur l'image : seule cette partie sera gardée.";
     }
 
     void EdSize_Changed(object sender, TextChangedEventArgs e)
@@ -713,21 +763,16 @@ public partial class MainWindow
     {
         if (Formats.KindOf(_edPath) != Kind.Image)
             return (_edDur <= 0 ? Edit.None : new Edit(_edA < 0.05 ? 0 : _edA, _edB >= _edDur - 0.05 ? 0 : _edB, 0, 0, 1, 1, 0, 0))
-                with { Rotate = _edVideo ? _edRot : 0, Volume = _edVol, Speed = _edSpeed };
+                with { Rotate = _edVideo ? _edRot : 0, Volume = _edVol, Speed = _edSpeed,
+                       CropX = _vidCrop.X, CropY = _vidCrop.Y, CropW = _vidCrop.Width, CropH = _vidCrop.Height };
         if (_imW == 0) throw new Exception("L'image n'est pas encore chargée.");
         if (!int.TryParse(EdW.Text, out var w) || !int.TryParse(EdH.Text, out var h) || w <= 0 || h <= 0 || w > 16384 || h > 16384)
             throw new Exception("Taille invalide : largeur et hauteur en pixels, entre 1 et 16384.");
         bool resize = w != CropW || h != CropH;
-        return Full
+        return (Full
             ? new Edit(0, 0, 0, 0, 1, 1, resize ? w : 0, resize ? h : 0)
-            : new Edit(0, 0, _crop.X, _crop.Y, _crop.Width, _crop.Height, resize ? w : 0, resize ? h : 0);
-    }
-
-    void EdGif_Click(object sender, RoutedEventArgs e)
-    {
-        var tag = (string)((FrameworkElement)sender).Tag;
-        if (int.TryParse(tag, out var fps)) S.GifFps = fps; else S.GifQuality = tag;
-        try { S.Save(); } catch (Exception ex) { App.Log(ex.ToString()); }
+            : new Edit(0, 0, _crop.X, _crop.Y, _crop.Width, _crop.Height, resize ? w : 0, resize ? h : 0))
+            with { Rotate = _edRot, FlipH = _flipH, FlipV = _flipV };
     }
 
     void EdSave(Target t)
@@ -738,8 +783,8 @@ public partial class MainWindow
         if (edit.IsEmpty && t.Id == "same")
         {
             EdError.Text = Formats.KindOf(_edPath) == Kind.Image
-                ? "Rien n'a changé : trace un cadre ou change la taille d'abord."
-                : "Rien n'a changé : tire les étiquettes Début et Fin de la frise pour choisir l'extrait, ou choisis une rotation, un volume, une vitesse.";
+                ? "Rien n'a changé : trace un cadre, tourne l'image ou change sa taille d'abord."
+                : "Rien n'a changé : tire les étiquettes Début et Fin de la frise pour choisir l'extrait, ou rogne l'image (vidéo), choisis une rotation, un volume, une vitesse.";
             EdError.Visibility = Visibility.Visible; return;
         }
         EdError.Visibility = Visibility.Collapsed;
@@ -747,16 +792,87 @@ public partial class MainWindow
             new Dictionary<string, Edit>(StringComparer.OrdinalIgnoreCase) { [_edPath] = edit });
     }
 
-    // ---------- assembler ----------
+    // ---------- rogner une vidéo ----------
+
+    /// <summary>La vue VLC est une fenêtre à part : rien ne se dessine dessus. On recadre donc sur une image fixe
+    /// de la vidéo (celle de la position courante), prise par FFmpeg, dans la même zone que pour une photo.</summary>
+    async void EdVidCrop_Click(object sender, RoutedEventArgs e)
+    {
+        if (_edPath == null || !_edVideo || _edDur <= 0) return;
+        EdPause();
+        var path = _edPath;
+        var at = Math.Clamp(_edPos, 0, Math.Max(0, _edDur - 0.3));
+        SetCropMode(true);
+        _imSrc = null; _imW = _imH = 0; EdPic.Source = null; EdPicMsg.Text = "";
+        EdPicLoading.Visibility = Visibility.Visible;
+        DrawCrop();
+        var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"prisme-{Guid.NewGuid():N}.png");
+        try
+        {
+            await Engines.Run(Engines.Ffmpeg, new[] { "-hide_banner", "-nostdin", "-y", "-ss", at.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+                "-i", path, "-frames:v", "1", "-update", "1", tmp }, null, null, CancellationToken.None);
+            if (path != _edPath || !_vcMode) return;
+            if (!File.Exists(tmp)) { EdPicMsg.Text = "Image de la vidéo illisible"; return; }
+            var bmp = LoadBitmap(tmp);
+            _imSrc = bmp; _imW = bmp.PixelWidth; _imH = bmp.PixelHeight;
+            EdPic.Source = bmp;
+            _sx = _sy = 1; _ratio = null;
+            foreach (var rb in EdRatios.Children.OfType<RadioButton>()) rb.IsChecked = (string)rb.Tag == "free";
+            _crop = _vidCrop; // on reprend le rognage déjà choisi
+            DrawCrop(cropChanged: true);
+        }
+        catch (Exception ex) { App.Log(ex.ToString()); EdPicMsg.Text = "Image de la vidéo illisible"; }
+        finally
+        {
+            try { File.Delete(tmp); } catch { }
+            if (path == _edPath) EdPicLoading.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>Bascule entre l'écran de la vidéo (aperçu, frise) et celui du rognage.</summary>
+    void SetCropMode(bool on)
+    {
+        _vcMode = on;
+        EdMedia.Visibility = Vis(!on); EdImage.Visibility = Vis(on); EdGripImg.Visibility = Vis(on);
+        // le cadre à tracer vient à l'écran (sinon ses boutons pouvaient rester sous la barre de titre)
+        Dispatcher.BeginInvoke(() => (on ? (FrameworkElement)EdImage : EdMedia).BringIntoView(new Rect(0, -60, 1, 1)), System.Windows.Threading.DispatcherPriority.Loaded);
+        EdTargets.Visibility = Vis(!on && !_mixReturn);
+        EdOrient.Visibility = Visibility.Collapsed; EdSizePanel.Visibility = Vis(!on);
+        EdVidCropBtns.Visibility = Vis(on); EdStageClose.Visibility = Vis(!on);
+        if (on) { EdResize(); return; }
+        EdPic.Source = null; _imSrc = null; _imW = _imH = 0; DrawCrop();
+        // la vue VLC vient de réapparaître : on la repositionne et on redemande l'image à l'endroit où elle était
+        _ = Dispatcher.InvokeAsync(() => { EdResize(); FitVideo(); Seek(_edPos); }, DispatcherPriority.Loaded);
+    }
+
+    void ShowVidCrop()
+    {
+        bool on = _vidCrop.Width < 0.9999 || _vidCrop.Height < 0.9999;
+        EdVidCropText.Text = on ? "Modifier le rognage…" : "Rogner l'image…";
+        EdVidCropInfo.Text = on ? $"Rognée : {_vidCropPx}" : "";
+        EdVidCropOff.Visibility = Vis(on);
+    }
+
+    void EdVidCropOk_Click(object sender, RoutedEventArgs e)
+    {
+        if (_imW == 0) return;
+        _vidCrop = Full ? new Rect(0, 0, 1, 1) : _crop; _vidCropPx = $"{CropW} × {CropH} px";
+        SetCropMode(false); ShowVidCrop();
+    }
+    void EdVidCropCancel_Click(object sender, RoutedEventArgs e) => SetCropMode(false);
+    void EdVidCropOff_Click(object sender, RoutedEventArgs e) { _vidCrop = new Rect(0, 0, 1, 1); ShowVidCrop(); }
+
+    // ---------- playlist (sons mis à la suite) ----------
 
     async void RefreshMix()
     {
         void Show()
         {
             MixList.ItemsSource = _mixPaths.Select((p, i) => new MixItem(p, System.IO.Path.GetFileName(p),
-                _mixDur.TryGetValue(p, out var d) ? (d > 0 ? Edit.Time(d) : "?") : "…", $"{i + 1}.")).ToList();
-            var total = _mixPaths.Sum(p => _mixDur.TryGetValue(p, out var d) ? d : 0);
-            MixTitle.Text = $"{_mixPaths.Count} MUSIQUE{(_mixPaths.Count > 1 ? "S" : "")} · {Edit.Time(total)} AU TOTAL · DANS CET ORDRE";
+                _mixDur.TryGetValue(p, out var d) ? (d > 0 ? Edit.Time(MixLen(p)) : "?") : "…", $"{i + 1}.",
+                _mixCut.TryGetValue(p, out var c) ? $"✂ {Edit.Time(c.A)} → {(c.B > 0 ? Edit.Time(c.B) : "fin")}" : "")).ToList();
+            var total = _mixPaths.Sum(MixLen);
+            MixTitle.Text = $"PLAYLIST · {_mixPaths.Count} SON{(_mixPaths.Count > 1 ? "S" : "")} · {Edit.Time(total)} AU TOTAL";
         }
         if (_mixPaths.Count == 0) { ShowEditMode(mix: null); return; }
         Show();
@@ -765,6 +881,56 @@ public partial class MainWindow
             _mixDur[p] = await Converter.Duration(p, CancellationToken.None);
             Show();
         }
+    }
+
+    /// <summary>Durée gardée d'un son de la playlist (son extrait s'il est coupé).</summary>
+    double MixLen(string p)
+    {
+        if (!_mixDur.TryGetValue(p, out var d)) return 0;
+        return _mixCut.TryGetValue(p, out var c) ? Math.Max(0, (c.B > 0 ? Math.Min(c.B, d) : d) - c.A) : d;
+    }
+
+    /// <summary>Garde l'extrait réglé sur le son ouvert (rien si tout est gardé).</summary>
+    void KeepCut()
+    {
+        if (_edPath == null || _edDur <= 0) return;
+        double a = _edA < 0.05 ? 0 : _edA, b = _edB >= _edDur - 0.05 ? 0 : _edB;
+        if (a == 0 && b == 0) _mixCut.Remove(_edPath); else _mixCut[_edPath] = (a, b);
+    }
+
+    /// <summary>Depuis un son ouvert : « + Ajouter un son à la suite » en fait le premier d'une playlist.</summary>
+    void EdAddNext_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Multiselect = true, Title = "Choisir les sons à mettre à la suite de celui-ci",
+            Filter = "Musiques|" + string.Join(";", Formats.AudioExts.Select(x => "*." + x)) + "|Tous les fichiers|*.*",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+        var add = Expand(dlg.FileNames).Where(p => Formats.KindOf(p) == Kind.Audio)
+            .OrderBy(p => System.IO.Path.GetFileName(p), Comparer<string>.Create(StrCmpLogicalW)).ToList();
+        if (add.Count == 0) return;
+        KeepCut();
+        _mixPaths.Clear(); _mixPaths.Add(_edPath);
+        foreach (var p in add) if (!_mixPaths.Contains(p, StringComparer.OrdinalIgnoreCase)) _mixPaths.Add(p);
+        CloseFile(); ShowEditMode(mix: true); RefreshMix();
+    }
+
+    /// <summary>Les ciseaux d'un son de la playlist : il s'ouvre pour régler son début et sa fin.</summary>
+    void MixCut_Click(object sender, RoutedEventArgs e)
+    {
+        var path = ((MixItem)((FrameworkElement)sender).DataContext).Path;
+        _mixReturn = true;
+        LoadSingle(path);
+    }
+
+    void EdBackMix_Click(object sender, RoutedEventArgs e) => MixBack(true);
+
+    void MixBack(bool keep)
+    {
+        if (keep) KeepCut();
+        _mixReturn = false;
+        CloseFile(); ShowEditMode(mix: true); RefreshMix();
     }
 
     int MixIndex(object sender) => _mixPaths.FindIndex(p => p == ((MixItem)((FrameworkElement)sender).DataContext).Path);
@@ -777,12 +943,15 @@ public partial class MainWindow
     }
     void MixUp_Click(object sender, RoutedEventArgs e) => MixMove(sender, -1);
     void MixDown_Click(object sender, RoutedEventArgs e) => MixMove(sender, 1);
-    void MixRemove_Click(object sender, RoutedEventArgs e) { int i = MixIndex(sender); if (i >= 0) _mixPaths.RemoveAt(i); RefreshMix(); }
-    void MixClear_Click(object sender, RoutedEventArgs e) { _mixPaths.Clear(); RefreshMix(); }
+    void MixRemove_Click(object sender, RoutedEventArgs e) { int i = MixIndex(sender); if (i >= 0) { _mixCut.Remove(_mixPaths[i]); _mixPaths.RemoveAt(i); } RefreshMix(); }
+    void MixClear_Click(object sender, RoutedEventArgs e) { _mixPaths.Clear(); _mixCut.Clear(); RefreshMix(); }
 
     void MixSave_Click(object sender, RoutedEventArgs e)
     {
         if (_mixPaths.Count < 2) return;
-        App.Current.StartConversions(_mixPaths.ToList(), ((Target)((FrameworkElement)sender).DataContext).Id);
+        // chaque son part avec son extrait : Converter les coupe avant de les mettre bout à bout
+        var edits = _mixCut.Where(c => _mixPaths.Contains(c.Key, StringComparer.OrdinalIgnoreCase))
+            .ToDictionary(c => c.Key, c => new Edit(c.Value.A, c.Value.B, 0, 0, 1, 1, 0, 0), StringComparer.OrdinalIgnoreCase);
+        App.Current.StartConversions(_mixPaths.ToList(), ((Target)((FrameworkElement)sender).DataContext).Id, edits);
     }
 }

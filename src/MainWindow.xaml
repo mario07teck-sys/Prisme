@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Prisme"
         xmlns:vlc="clr-namespace:LibVLCSharp.WPF;assembly=LibVLCSharp.WPF"
-        Title="Prisme" Width="1080" Height="720" MinWidth="880" MinHeight="600"
+        Title="Prisme" Width="960" Height="680" MinWidth="760" MinHeight="560"
         WindowStartupLocation="CenterScreen" Background="{StaticResource Bg}"
         FontFamily="{StaticResource Body}" Foreground="{StaticResource Text}"
         UseLayoutRounding="True" TextOptions.TextFormattingMode="Ideal" TextOptions.TextRenderingMode="ClearType"
@@ -187,7 +187,7 @@
           <RadioButton x:Name="NavEdit" Style="{StaticResource Nav}" Checked="Nav_Checked" Tag="edit">
             <StackPanel Orientation="Horizontal">
               <Path Style="{StaticResource Icon}" Data="{StaticResource IcScissors}" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}"/>
-              <TextBlock Text="Retoucher" Margin="12,0,0,0" VerticalAlignment="Center"/>
+              <TextBlock Text="Découpe" Margin="12,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
           </RadioButton>
           <RadioButton x:Name="NavDownload" Style="{StaticResource Nav}" Checked="Nav_Checked" Tag="download">
@@ -303,12 +303,12 @@
         </StackPanel>
       </ScrollViewer>
 
-      <!-- ===== Page Retoucher ===== -->
+      <!-- ===== Page Découpe ===== -->
       <ScrollViewer x:Name="PageEdit" VerticalScrollBarVisibility="Auto" Visibility="Collapsed" SizeChanged="PageEdit_Size">
         <ScrollViewer.RenderTransform><TranslateTransform/></ScrollViewer.RenderTransform>
         <StackPanel x:Name="EdPage" Margin="44,40,40,24">
-          <TextBlock Style="{StaticResource H1}" Text="Retoucher"/>
-          <TextBlock Style="{StaticResource Sub}" Text="Garde un extrait d'une musique ou d'une vidéo, assemble plusieurs sons en un seul, recadre ou redimensionne une image."/>
+          <TextBlock Style="{StaticResource H1}" Text="Découpe"/>
+          <TextBlock Style="{StaticResource Sub}" Text="Coupe un son ou une vidéo (tourne-la, rogne-la), mets plusieurs sons à la suite pour une playlist, retourne ou rogne une photo."/>
 
           <!-- rien de chargé -->
           <Grid x:Name="EdDrop" Margin="0,24,0,0" Cursor="Hand" MouseLeftButtonUp="EdBrowse_Click" Background="Transparent">
@@ -321,7 +321,7 @@
               <TextBlock Text="Glisse un fichier ici" FontFamily="{StaticResource Display}" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,16,0,0"/>
               <TextBlock HorizontalAlignment="Center" Margin="0,6,0,0" FontSize="13" Foreground="{StaticResource Text2}" TextAlignment="Center">
                 <Run Text="ou"/> <Run Text="clique pour parcourir" Foreground="#C9A8FF"/> <Run Text=" · une musique, une vidéo ou une image"/>
-                <LineBreak/><Run Text="Plusieurs musiques d'un coup : pour les assembler en un seul fichier" Foreground="{StaticResource Text3}"/>
+                <LineBreak/><Run Text="Plusieurs musiques d'un coup : pour les mettre à la suite, en une playlist" Foreground="{StaticResource Text3}"/>
               </TextBlock>
               <TextBlock x:Name="EdDropError" Foreground="{StaticResource Err}" FontSize="13" HorizontalAlignment="Center" Margin="0,10,0,0" Visibility="Collapsed"/>
             </StackPanel>
@@ -331,7 +331,13 @@
           <StackPanel x:Name="EdPanel" Visibility="Collapsed" Margin="0,24,0,0">
             <Border Style="{StaticResource CardBox}" Padding="14,8,8,8">
               <DockPanel>
-                <Button DockPanel.Dock="Right" Style="{StaticResource Btn}" Padding="14,7" FontSize="13" Content="Autre fichier…" Click="EdBrowse_Click"/>
+                <Button x:Name="EdOther" DockPanel.Dock="Right" Style="{StaticResource Btn}" Padding="14,7" FontSize="13" Content="Autre fichier…" Click="EdBrowse_Click"/>
+                <Button x:Name="EdBackMix" DockPanel.Dock="Right" Style="{StaticResource Primary}" Padding="16,7" Margin="0,0,8,0" Visibility="Collapsed" Click="EdBackMix_Click"
+                        ToolTip="Garde cet extrait et retourne à la playlist">
+                  <TextBlock Text="✓ Valider cet extrait" Foreground="White" FontSize="13"/>
+                </Button>
+                <Button x:Name="EdAddNext" DockPanel.Dock="Right" Style="{StaticResource Btn}" Padding="14,7" Margin="0,0,8,0" FontSize="13" Content="+ Ajouter un son à la suite" Click="EdAddNext_Click"
+                        ToolTip="Fait une playlist : ce son, puis ceux que tu choisis"/>
                 <Path x:Name="EdIcon" Style="{StaticResource Icon}" Width="18" Height="18" Stroke="#C9A8FF" Margin="0,0,12,0"/>
                 <TextBlock x:Name="EdInfo" DockPanel.Dock="Right" VerticalAlignment="Center" FontSize="12.5" Foreground="{StaticResource Text3}" Margin="10,0,14,0"/>
                 <TextBlock x:Name="EdName" VerticalAlignment="Center" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
@@ -440,7 +446,21 @@
                 <TextBlock x:Name="EdLen" VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,8"/>
               </WrapPanel>
               <!-- rotation (vidéo), volume, vitesse : appliqués à l'enregistrement -->
-              <WrapPanel x:Name="EdRot" Margin="0,14,0,0">
+              <WrapPanel x:Name="EdCropRow" Margin="0,14,0,0">
+                <TextBlock Text="Rogner" VerticalAlignment="Center" Width="150" Margin="2,0,0,8" Foreground="{StaticResource Text2}"/>
+                <Button Style="{StaticResource Btn}" Margin="0,0,10,8" Padding="14,7" FontSize="13" Click="EdVidCrop_Click"
+                        ToolTip="Choisis la partie de l'image à garder, sur une image fixe de la vidéo (à la position du rond rose)">
+                  <StackPanel Orientation="Horizontal">
+                    <Path Style="{StaticResource Icon}" Data="{StaticResource IcCrop}" Width="15" Height="15"/>
+                    <TextBlock x:Name="EdVidCropText" Text="Rogner l'image…" Margin="8,0,0,0"/>
+                  </StackPanel>
+                </Button>
+                <TextBlock x:Name="EdVidCropInfo" VerticalAlignment="Center" Margin="0,0,10,8" FontSize="13" Foreground="{StaticResource Text}"/>
+                <Button x:Name="EdVidCropOff" Style="{StaticResource IconBtn}" Margin="0,0,0,8" Visibility="Collapsed" Click="EdVidCropOff_Click">
+                  <TextBlock Text="Retirer le rognage" FontSize="12.5"/>
+                </Button>
+              </WrapPanel>
+              <WrapPanel x:Name="EdRot" Margin="0,0,0,0">
                 <TextBlock Text="Rotation" VerticalAlignment="Center" Width="150" Margin="2,0,0,8" Foreground="{StaticResource Text2}"/>
                 <RadioButton Style="{StaticResource Chip}" GroupName="erot" Tag="rot:0" Content="Aucune" Click="EdFx_Click"/>
                 <RadioButton Style="{StaticResource Chip}" GroupName="erot" Tag="rot:90" Content="↻ 90°" Click="EdFx_Click"/>
@@ -488,13 +508,30 @@
                     <TextBlock Style="{StaticResource LoadingText}" Text="Chargement de l'image…"/>
                   </StackPanel>
                 </Grid>
-                <Button HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,6,0" Style="{StaticResource IconBtn}" Background="#99000000"
+                <Button x:Name="EdStageClose" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,6,0" Style="{StaticResource IconBtn}" Background="#99000000"
                         Click="EdClose_Click" ToolTip="Fermer ce fichier">
                   <Path Style="{StaticResource Icon}" Data="{StaticResource IcClose}" Width="14" Height="14"/>
                 </Button>
                 </Grid>
               </Border>
               <StackPanel Grid.Column="1" Margin="18,0,0,0">
+                <StackPanel x:Name="EdOrient">
+                  <TextBlock Style="{StaticResource Section}" Text="TOURNER · RETOURNER"/>
+                  <WrapPanel Margin="0,0,0,18">
+                    <Button Style="{StaticResource Btn}" Padding="12,7" Margin="0,0,6,6" Click="EdTurn_Click" Tag="-90" ToolTip="Quart de tour vers la gauche">
+                      <TextBlock Text="↺ Gauche" FontSize="13"/>
+                    </Button>
+                    <Button Style="{StaticResource Btn}" Padding="12,7" Margin="0,0,6,6" Click="EdTurn_Click" Tag="90" ToolTip="Quart de tour vers la droite">
+                      <TextBlock Text="↻ Droite" FontSize="13"/>
+                    </Button>
+                    <Button Style="{StaticResource Btn}" Padding="12,7" Margin="0,0,6,6" Click="EdFlip_Click" Tag="h" ToolTip="Miroir : gauche et droite échangées">
+                      <TextBlock Text="↔ Miroir" FontSize="13"/>
+                    </Button>
+                    <Button Style="{StaticResource Btn}" Padding="12,7" Margin="0,0,6,6" Click="EdFlip_Click" Tag="v" ToolTip="Miroir : haut et bas échangés">
+                      <TextBlock Text="↕ Miroir" FontSize="13"/>
+                    </Button>
+                  </WrapPanel>
+                </StackPanel>
                 <TextBlock Style="{StaticResource Section}" Text="RECADRER"/>
                 <TextBlock Text="Trace un cadre sur l'image, déplace-le ou tire ses coins." FontSize="12.5" Foreground="{StaticResource Text3}" TextWrapping="Wrap" Margin="2,0,0,10"/>
                 <WrapPanel x:Name="EdRatios">
@@ -508,6 +545,7 @@
                   <RadioButton Style="{StaticResource Chip}" GroupName="ratio" Tag="4:5" Content="4:5 · post" Checked="EdRatio_Click"/>
                 </WrapPanel>
 
+                <StackPanel x:Name="EdSizePanel">
                 <TextBlock Style="{StaticResource Section}" Text="TAILLE (PIXELS)" Margin="2,16,0,10"/>
                 <StackPanel Orientation="Horizontal">
                   <TextBox x:Name="EdW" Style="{StaticResource Field}" Width="100" Height="42" FontSize="14" TextChanged="EdSize_Changed" ToolTip="Largeur"/>
@@ -526,6 +564,14 @@
                 </WrapPanel>
                 <TextBlock x:Name="EdSizeInfo" FontSize="12.5" Foreground="{StaticResource Text3}" TextWrapping="Wrap" Margin="2,8,0,0"/>
                 <Button Style="{StaticResource Btn}" HorizontalAlignment="Left" Padding="14,7" Margin="0,16,0,0" FontSize="13" Content="Tout remettre à zéro" Click="EdReset_Click"/>
+                </StackPanel>
+                <StackPanel x:Name="EdVidCropBtns" Visibility="Collapsed" Margin="0,18,0,0">
+                  <TextBlock x:Name="EdVidCropSize" FontSize="12.5" Foreground="{StaticResource Text2}" TextWrapping="Wrap" Margin="2,0,0,12"/>
+                  <Button Style="{StaticResource Primary}" HorizontalAlignment="Left" Padding="20,10" Click="EdVidCropOk_Click">
+                    <TextBlock Text="✓ Garder ce cadre" Foreground="White" FontSize="14"/>
+                  </Button>
+                  <Button Style="{StaticResource Btn}" HorizontalAlignment="Left" Padding="14,8" Margin="0,8,0,0" FontSize="13" Content="Annuler" Click="EdVidCropCancel_Click"/>
+                </StackPanel>
               </StackPanel>
             </Grid>
 
@@ -535,40 +581,21 @@
             </Border>
             <ContentControl x:Name="EdTargets" ContentTemplate="{StaticResource GroupTpl}" Focusable="False" Margin="0,24,0,0"/>
             <TextBlock x:Name="EdError" Foreground="{StaticResource Err}" FontSize="13" Margin="2,2,0,0" Visibility="Collapsed" TextWrapping="Wrap"/>
-            <!-- réglages du bouton GIF (servent aussi dans « Convertir ») -->
-            <StackPanel x:Name="EdGif" Margin="0,16,0,0">
-              <TextBlock Style="{StaticResource Section}" Text="RÉGLAGES DU GIF" Margin="2,0,0,10"/>
-              <WrapPanel x:Name="EdGifFps">
-                <TextBlock Text="Images par seconde" VerticalAlignment="Center" Width="150" Margin="2,0,0,8" Foreground="{StaticResource Text2}"/>
-                <RadioButton Style="{StaticResource Chip}" GroupName="gfps" Tag="8" Content="8" Click="EdGif_Click"/>
-                <RadioButton Style="{StaticResource Chip}" GroupName="gfps" Tag="10" Content="10" Click="EdGif_Click"/>
-                <RadioButton Style="{StaticResource Chip}" GroupName="gfps" Tag="12" Content="12" Click="EdGif_Click"/>
-                <RadioButton Style="{StaticResource Chip}" GroupName="gfps" Tag="15" Content="15" Click="EdGif_Click"/>
-                <RadioButton Style="{StaticResource Chip}" GroupName="gfps" Tag="20" Content="20" Click="EdGif_Click"/>
-                <RadioButton Style="{StaticResource Chip}" GroupName="gfps" Tag="25" Content="25 (fluide)" Click="EdGif_Click"/>
-              </WrapPanel>
-              <WrapPanel x:Name="EdGifQuality">
-                <TextBlock Text="Qualité" VerticalAlignment="Center" Width="150" Margin="2,0,0,8" Foreground="{StaticResource Text2}"/>
-                <RadioButton Style="{StaticResource Chip}" GroupName="gq" Tag="light" Content="Légère · 360 px" Click="EdGif_Click"/>
-                <RadioButton Style="{StaticResource Chip}" GroupName="gq" Tag="normal" Content="Normale · 540 px" Click="EdGif_Click"/>
-                <RadioButton Style="{StaticResource Chip}" GroupName="gq" Tag="high" Content="Haute · 720 px" Click="EdGif_Click"/>
-              </WrapPanel>
-              <TextBlock FontSize="12" Foreground="{StaticResource Text3}" Margin="2,2,0,0" TextWrapping="Wrap"
-                         Text="Plus d'images par seconde ou une meilleure qualité = un GIF plus lourd. Pour WhatsApp, préfère « Animation WhatsApp »."/>
-            </StackPanel>
           </StackPanel>
 
-          <!-- plusieurs musiques : assembler -->
+          <!-- plusieurs musiques : playlist -->
           <StackPanel x:Name="MixPanel" Visibility="Collapsed" Margin="0,24,0,0">
             <DockPanel Margin="2,0,0,10">
               <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Click="MixClear_Click" ToolTip="Tout retirer">
                 <Path Style="{StaticResource Icon}" Data="{StaticResource IcTrash}" Width="16" Height="16"/>
               </Button>
-              <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Click="EdBrowse_Click" Margin="0,0,4,0" ToolTip="Ajouter des musiques">
-                <TextBlock Text="+ Ajouter" FontSize="13"/>
+              <Button DockPanel.Dock="Right" Style="{StaticResource Btn}" Padding="14,6" Click="EdBrowse_Click" Margin="0,-4,10,0" ToolTip="Ajouter des sons à la suite">
+                <TextBlock Text="+ Ajouter un son" FontSize="13"/>
               </Button>
               <TextBlock x:Name="MixTitle" Style="{StaticResource Section}" Margin="0" VerticalAlignment="Center"/>
             </DockPanel>
+            <TextBlock Text="Les sons seront mis bout à bout, dans cet ordre. Les ciseaux ouvrent un son pour n'en garder qu'un extrait." FontSize="12.5"
+                       Foreground="{StaticResource Text2}" TextWrapping="Wrap" Margin="2,0,0,10"/>
             <Border Style="{StaticResource CardBox}" Padding="6">
               <ItemsControl x:Name="MixList">
                 <ItemsControl.ItemTemplate>
@@ -583,15 +610,19 @@
                       <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Padding="6" Click="MixUp_Click" ToolTip="Monter">
                         <TextBlock Text="↑" FontSize="14"/>
                       </Button>
+                      <Button DockPanel.Dock="Right" Style="{StaticResource IconBtn}" Padding="6" Click="MixCut_Click" ToolTip="Couper : ne garder qu'un extrait de ce son">
+                        <Path Style="{StaticResource Icon}" Data="{StaticResource IcScissors}" Width="14" Height="14" Stroke="#C9A8FF"/>
+                      </Button>
                       <TextBlock DockPanel.Dock="Right" Text="{Binding Length}" FontSize="12.5" Foreground="{StaticResource Text3}" VerticalAlignment="Center" Margin="10,0,12,0"/>
                       <TextBlock Text="{Binding Number}" Width="28" FontSize="12.5" Foreground="{StaticResource Text3}" VerticalAlignment="Center"/>
+                      <TextBlock DockPanel.Dock="Right" Text="{Binding Cut}" FontSize="12.5" Foreground="#C9A8FF" VerticalAlignment="Center" Margin="10,0,0,0"/>
                       <TextBlock Text="{Binding Name}" FontSize="13.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}"/>
                     </DockPanel>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
             </Border>
-            <TextBlock Style="{StaticResource Section}" Text="ASSEMBLER À LA SUITE EN" Margin="2,22,0,10"/>
+            <TextBlock Style="{StaticResource Section}" Text="ENREGISTRER LA PLAYLIST EN" Margin="2,22,0,10"/>
             <ItemsControl x:Name="MixTargets">
               <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
@@ -689,6 +720,24 @@
             </StackPanel>
           </Button>
           <TextBlock x:Name="UrlError" Foreground="{StaticResource Err}" FontSize="13" Margin="2,10,0,0" Visibility="Collapsed"/>
+
+          <!-- extension du navigateur : clic droit sur une vidéo → Prisme -->
+          <Border Style="{StaticResource CardBox}" Padding="16,14" Margin="0,24,0,0" Background="#12121F">
+            <DockPanel>
+              <Button x:Name="ExtBtn" DockPanel.Dock="Right" Style="{StaticResource Btn}" Padding="16,8" VerticalAlignment="Center" Click="AddExtension_Click" Margin="14,0,0,0">
+                <TextBlock x:Name="ExtBtnText" Text="Ajouter au navigateur" FontSize="13.5"/>
+              </Button>
+              <Grid Width="44" Height="44" VerticalAlignment="Center" Margin="0,0,14,0">
+                <Border CornerRadius="13" Background="{StaticResource SpectrumSoft}"/>
+                <Path x:Name="ExtCardIcon" Style="{StaticResource Icon}" Data="{StaticResource IcBrowser}" Width="22" Height="22" Stroke="{StaticResource Text}"/>
+              </Grid>
+              <StackPanel VerticalAlignment="Center">
+                <TextBlock x:Name="ExtTitle" Text="Clic droit dans Chrome" FontSize="14.5" FontWeight="SemiBold"/>
+                <TextBlock x:Name="ExtText" FontSize="12.5" Foreground="{StaticResource Text2}" TextWrapping="Wrap" Margin="0,3,0,0"
+                           Text="Avec l'extension Prisme (Chrome, Edge ou Brave) : clic droit sur une vidéo → « Télécharger avec Prisme »."/>
+              </StackPanel>
+            </DockPanel>
+          </Border>
         </StackPanel>
 
         <DockPanel Grid.Row="2" Margin="0,26,0,0">
@@ -779,6 +828,29 @@
             </StackPanel>
           </Border>
 
+          <TextBlock Style="{StaticResource Section}" Text="CONVERSION EN GIF" Margin="2,26,0,10"/>
+          <Border Style="{StaticResource CardBox}" Padding="20,14,20,8">
+            <StackPanel>
+              <WrapPanel x:Name="GifFps">
+                <TextBlock Text="Images par seconde" VerticalAlignment="Center" Width="160" Margin="0,0,0,8" FontSize="14"/>
+                <RadioButton Style="{StaticResource Chip}" GroupName="gfps" Tag="8" Content="8" Click="Gif_Click"/>
+                <RadioButton Style="{StaticResource Chip}" GroupName="gfps" Tag="10" Content="10" Click="Gif_Click"/>
+                <RadioButton Style="{StaticResource Chip}" GroupName="gfps" Tag="12" Content="12" Click="Gif_Click"/>
+                <RadioButton Style="{StaticResource Chip}" GroupName="gfps" Tag="15" Content="15" Click="Gif_Click"/>
+                <RadioButton Style="{StaticResource Chip}" GroupName="gfps" Tag="20" Content="20" Click="Gif_Click"/>
+                <RadioButton Style="{StaticResource Chip}" GroupName="gfps" Tag="25" Content="25 (fluide)" Click="Gif_Click"/>
+              </WrapPanel>
+              <WrapPanel x:Name="GifQuality">
+                <TextBlock Text="Qualité" VerticalAlignment="Center" Width="160" Margin="0,0,0,8" FontSize="14"/>
+                <RadioButton Style="{StaticResource Chip}" GroupName="gq" Tag="light" Content="Légère · 360 px" Click="Gif_Click"/>
+                <RadioButton Style="{StaticResource Chip}" GroupName="gq" Tag="normal" Content="Normale · 540 px" Click="Gif_Click"/>
+                <RadioButton Style="{StaticResource Chip}" GroupName="gq" Tag="high" Content="Haute · 720 px" Click="Gif_Click"/>
+              </WrapPanel>
+              <TextBlock FontSize="12.5" Foreground="{StaticResource Text3}" Margin="0,2,0,6" TextWrapping="Wrap"
+                         Text="Plus d'images par seconde ou une meilleure qualité = un GIF plus lourd. Pour WhatsApp, préfère « Animation WhatsApp »."/>
+            </StackPanel>
+          </Border>
+
           <TextBlock Style="{StaticResource Section}" Text="MOTEURS" Margin="2,26,0,10"/>
           <Border Style="{StaticResource CardBox}" Padding="20,16">
             <StackPanel>
@@ -834,6 +906,55 @@
           <TextBlock x:Name="DropOverlayText" Text="Lâche pour ajouter" FontFamily="{StaticResource Display}" FontSize="22" FontWeight="SemiBold" Margin="0,20,0,0" HorizontalAlignment="Center"/>
         </StackPanel>
       </Border>
+
+      <!-- ajouter l'extension au navigateur : trois étapes ; se ferme toute seule quand le navigateur l'a prise -->
+      <Grid x:Name="ExtOverlay" Visibility="Collapsed" Background="#D90A0A12" Panel.ZIndex="6">
+        <Border x:Name="ExtCard" Style="{StaticResource CardBox}" Width="540" Padding="28,26" CornerRadius="18" BorderBrush="{StaticResource StrokeHi}"
+                HorizontalAlignment="Center" VerticalAlignment="Center">
+          <Border.RenderTransform><TranslateTransform/></Border.RenderTransform>
+          <Border.Effect><DropShadowEffect Color="#B565FF" BlurRadius="48" ShadowDepth="0" Opacity="0.22"/></Border.Effect>
+          <StackPanel>
+            <Grid Width="60" Height="60" HorizontalAlignment="Left">
+              <Border CornerRadius="17" Background="{StaticResource Spectrum}"/>
+              <Path x:Name="ExtIcon" Style="{StaticResource Icon}" Data="{StaticResource IcBrowser}" Width="28" Height="28" Stroke="White" StrokeThickness="2" RenderTransformOrigin="0.5,0.5">
+                <Path.RenderTransform><ScaleTransform/></Path.RenderTransform>
+              </Path>
+            </Grid>
+            <TextBlock x:Name="ExtOvTitle" FontFamily="{StaticResource Display}" FontSize="21" FontWeight="SemiBold" Margin="0,18,0,0" TextWrapping="Wrap"/>
+            <TextBlock x:Name="ExtOvText" FontSize="13.5" Foreground="{StaticResource Text2}" TextWrapping="Wrap" LineHeight="20" Margin="0,8,0,0"/>
+            <StackPanel x:Name="ExtSteps" Margin="0,18,0,0">
+              <DockPanel Margin="0,0,0,14">
+                <Border Width="28" Height="28" CornerRadius="14" Background="{StaticResource SpectrumSoft}" VerticalAlignment="Top" Margin="0,0,12,0">
+                  <TextBlock Text="1" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <TextBlock FontSize="14" TextWrapping="Wrap" LineHeight="20" VerticalAlignment="Center"><Run Text="Dans le navigateur qui vient de s'ouvrir : clique dans la barre d'adresse, fais"/> <Run Text="Ctrl + V" FontWeight="SemiBold" Foreground="#C9A8FF"/> <Run Text="puis Entrée (l'adresse de la page des extensions est déjà copiée). Là, allume"/> <Run Text="« Mode développeur »" FontWeight="SemiBold" Foreground="#C9A8FF"/> <Run Text="en haut à droite."/></TextBlock>
+              </DockPanel>
+              <DockPanel Margin="0,0,0,14">
+                <Border Width="28" Height="28" CornerRadius="14" Background="{StaticResource SpectrumSoft}" VerticalAlignment="Top" Margin="0,0,12,0">
+                  <TextBlock Text="2" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <TextBlock FontSize="14" TextWrapping="Wrap" LineHeight="20" VerticalAlignment="Center"><Run Text="Glisse le dossier"/> <Run Text="« extension »" FontWeight="SemiBold" Foreground="#C9A8FF"/> <Run Text="(déjà sélectionné dans la fenêtre ouverte) et lâche-le sur la page."/></TextBlock>
+              </DockPanel>
+              <DockPanel>
+                <Border Width="28" Height="28" CornerRadius="14" Background="{StaticResource SpectrumSoft}" VerticalAlignment="Top" Margin="0,0,12,0">
+                  <TextBlock Text="3" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <TextBlock FontSize="14" TextWrapping="Wrap" LineHeight="20" VerticalAlignment="Center"><Run Text="C'est tout : clic droit sur une vidéo →"/> <Run Text="« Télécharger avec Prisme »." FontWeight="SemiBold"/></TextBlock>
+              </DockPanel>
+            </StackPanel>
+            <StackPanel x:Name="ExtWait" Orientation="Horizontal" Margin="0,20,0,0">
+              <Control Template="{StaticResource Spinner}" VerticalAlignment="Center"/>
+              <TextBlock Style="{StaticResource LoadingText}" Text="Prisme attend que le navigateur prenne l'extension…" Margin="12,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
+            <StackPanel x:Name="ExtButtons" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
+              <Button Style="{StaticResource Btn}" Content="Rouvrir la page et le dossier" Click="ExtReopen_Click" Margin="0,0,10,0"/>
+              <Button Style="{StaticResource Primary}" Padding="22,10" Click="ExtClose_Click">
+                <TextBlock Text="Fermer" Foreground="White" FontSize="14"/>
+              </Button>
+            </StackPanel>
+          </StackPanel>
+        </Border>
+      </Grid>
 
       <!-- LibreOffice à télécharger : proposition, puis installation en direct (DataContext = la tâche qui en a besoin) -->
       <Grid x:Name="OfficeOverlay" Visibility="Collapsed" Background="#D90A0A12" Panel.ZIndex="5">

@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Prisme — télécharger les vidéos",
+  "short_name": "Prisme",
+  "version": "1.3.0",
+  "description": "Clic droit sur une vidéo → « Télécharger avec Prisme ». La vidéo arrive dans le dossier de Prisme, sans pub.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwPc/np680k0kPre/ujbCNfNAwj91LpEXhjXC5XF75sW7anA5XdxL0O6/22NI0V0tEN+1a8vis/WzTNeWK10A6NB+kTEFj7wWoQRejz/iXjQvxowYyWACLqalq1PhXDBpcPD/j7mW4hueKLAdgamC9hErO6oZmvKpLjJJ/BPsC2etxR3NsMBlj+WRwVsR7J7aV1A6RiRRKGNb+hAfVmhem2fjG6qmKeJN2EkwTOFdRRSMMB/zvmS00X3Y5VGh28YhoGFJ9gRb8nazubRjuJP9LkXXzQ1LN3dHBaqF+Tx2UuXkmObQKZ29kkZsS8CG4QrVFlo5StUOVaXY/OKJcBtvoQIDAQAB",
+  "permissions": ["contextMenus", "nativeMessaging", "activeTab"],
+  "background": { "service_worker": "fond.js" },
+  "action": {
+    "default_title": "Télécharger avec Prisme",
+    "default_popup": "fenetre.html",
+    "default_icon": { "16": "icones/prisme-16.png", "32": "icones/prisme-32.png" }
+  },
+  "icons": { "16": "icones/prisme-16.png", "32": "icones/prisme-32.png", "48": "icones/prisme-48.png", "128": "icones/prisme-128.png" }
+}

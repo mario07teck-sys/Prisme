@@ -12,7 +12,7 @@
     <AssemblyName>Prisme</AssemblyName>
     <ApplicationIcon>Assets\prisme.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.2.12</Version>
+    <Version>1.3.0</Version>
     <Product>Prisme</Product>
     <Company>Mario Teck</Company>
     <Copyright>© 2026 Mario Teck</Copyright>
@@ -28,7 +28,7 @@
     <Using Remove="System.Drawing" />
     <Using Include="System.IO" />
     <PackageReference Include="PDFsharp" Version="6.2.2" />
-    <!-- aperçu audio/vidéo de l'onglet Retoucher : moteur VLC embarqué, lit aussi MKV, HEVC… -->
+    <!-- aperçu audio/vidéo de l'onglet Découpe : moteur VLC embarqué, lit aussi MKV, HEVC… -->
     <PackageReference Include="LibVLCSharp.WPF" Version="3.8.5" />
     <!-- LibVLCSharp tire le Windows App SDK (pour WinUI) : inutile en WPF, et ses anciennes plateformes « win10-x64 » cassent .NET 10 -->
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.1.1" ExcludeAssets="all" PrivateAssets="all" />
@@ -55,6 +55,8 @@
     <Resource Include="Assets\prisme.ico" />
     <Content Include="..\vendor\ffmpeg.exe" Link="engines\ffmpeg.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
     <Content Include="..\vendor\FFMPEG-LICENSE" Link="engines\FFMPEG-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <!-- extension Chrome / Edge / Brave : chargée depuis ce dossier, à côté de Prisme.exe -->
+    <Content Include="..\extension\**" Link="extension\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
     <Content Include="..\vendor\yt-dlp.exe" Link="engines\yt-dlp.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 

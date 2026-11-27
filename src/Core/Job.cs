@@ -7,23 +7,35 @@ public enum JobState { Waiting, Running, Done, Error, Canceled }
 
 /// <summary>Retouche avant conversion. Extrait en secondes (End = 0 : jusqu'à la fin) ;
 /// recadrage en fractions de l'image (indépendant de sa résolution) ; taille en pixels (0 = automatique).</summary>
-/// <remarks>Son et vidéo : rotation en degrés dans le sens des aiguilles (90, 180, 270), volume (1 = inchangé), vitesse (0,5 à 2).</remarks>
+/// <remarks>Son et vidéo : rotation en degrés dans le sens des aiguilles (90, 180, 270), volume (1 = inchangé), vitesse (0,5 à 2).
+/// Image : rotation puis miroir (FlipH gauche-droite, FlipV haut-bas) ; le recadrage est exprimé sur l'image ainsi tournée.
+/// Vidéo : le recadrage est exprimé sur l'image d'origine, il est appliqué avant la rotation.</remarks>
 public record Edit(double Start, double End, double CropX, double CropY, double CropW, double CropH, int Width, int Height,
-    int Rotate = 0, double Volume = 1, double Speed = 1)
+    int Rotate = 0, double Volume = 1, double Speed = 1, bool FlipH = false, bool FlipV = false)
 {
     public static readonly Edit None = new(0, 0, 0, 0, 1, 1, 0, 0);
     public bool Trims => Start > 0 || End > 0;
     public bool Crops => CropW < 0.9999 || CropH < 0.9999;
     public bool Resizes => Width > 0 || Height > 0;
-    public bool Filters => Rotate != 0 || Volume != 1 || Speed != 1;
+    public bool Filters => Rotate != 0 || Volume != 1 || Speed != 1 || FlipH || FlipV || Crops;
     public bool IsEmpty => !Trims && !Crops && !Resizes && !Filters;
 
-    /// <summary>Filtre FFmpeg du recadrage puis de la taille ("" si rien).</summary>
+    string CropFilter() => FormattableString.Invariant(
+        $"crop=trunc(iw*{CropW:0.######}/2)*2:trunc(ih*{CropH:0.######}/2)*2:trunc(iw*{CropX:0.######}):trunc(ih*{CropY:0.######})");
+
+    /// <summary>Rotation puis miroirs (dans cet ordre : c'est celui de l'aperçu).</summary>
+    IEnumerable<string> Orient()
+    {
+        if (Rotate == 90) yield return "transpose=1"; else if (Rotate == 180) yield return "hflip,vflip"; else if (Rotate == 270) yield return "transpose=2";
+        if (FlipH) yield return "hflip";
+        if (FlipV) yield return "vflip";
+    }
+
+    /// <summary>Filtre FFmpeg de l'orientation, du recadrage puis de la taille ("" si rien).</summary>
     public string ImageFilter()
     {
-        var f = new List<string>();
-        if (Crops) f.Add(FormattableString.Invariant(
-            $"crop=trunc(iw*{CropW:0.######}/2)*2:trunc(ih*{CropH:0.######}/2)*2:trunc(iw*{CropX:0.######}):trunc(ih*{CropY:0.######})"));
+        var f = Orient().ToList();
+        if (Crops) f.Add(CropFilter());
         if (Resizes) f.Add($"scale={(Width > 0 ? Width : -2)}:{(Height > 0 ? Height : -2)}:flags=lanczos");
         return string.Join(",", f);
     }
@@ -34,6 +46,7 @@ public record Edit(double Start, double End, double CropX, double CropY, double 
         Crops ? "recadrée" : null,
         Resizes ? (Width > 0 && Height > 0 ? $"{Width}×{Height}" : Width > 0 ? $"{Width} px de large" : $"{Height} px de haut") : null,
         Rotate != 0 ? $"↻ {Rotate}°" : null,
+        FlipH || FlipV ? "miroir" : null,
         Volume != 1 ? $"volume {Volume * 100:0} %" : null,
         Speed != 1 ? $"vitesse ×{Speed:0.##}" : null,
     }.Where(s => s != null));
@@ -43,7 +56,8 @@ public record Edit(double Start, double End, double CropX, double CropY, double 
     {
         var inv = System.Globalization.CultureInfo.InvariantCulture;
         var v = new List<string>(); var a = new List<string>();
-        if (Rotate == 90) v.Add("transpose=1"); else if (Rotate == 180) v.Add("hflip,vflip"); else if (Rotate == 270) v.Add("transpose=2");
+        if (Crops) v.Add(CropFilter()); // avant la rotation : le cadre a été tracé sur l'image d'origine
+        v.AddRange(Orient());
         if (Speed != 1) { v.Add(string.Format(inv, "setpts=PTS/{0:0.###}", Speed)); a.Add(string.Format(inv, "atempo={0:0.###}", Speed)); }
         if (Volume != 1) a.Add(string.Format(inv, "volume={0:0.###}", Volume));
         return (string.Join(",", v), string.Join(",", a));

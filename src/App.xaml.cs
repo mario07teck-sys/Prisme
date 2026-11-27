@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Text;
@@ -33,13 +33,20 @@ public partial class App : Application
         var args = e.Args;
         Settings = Settings.Load();
 
+        // lancé par Chrome / Edge / Brave (extension « Prisme ») : transmet le lien puis s'arrête, sans fenêtre
+        if (args.Length > 0 && args[0].StartsWith("chrome-extension://"))
+        {
+            bool open = Mutex.TryOpenExisting(MutexName, out var m); m?.Dispose();
+            Shutdown(Browser.Host(SendToFirst, open)); return;
+        }
+
         // commandes sans interface (installeur / désinstalleur / test)
         if (args.Length > 0)
         {
             switch (args[0])
             {
                 case "--register-shell": Shell.RegisterContextMenu(); Settings.ContextMenu = true; Settings.Save(); Shutdown(0); return;
-                case "--unregister": Shell.UnregisterContextMenu(); Shell.SetAutostart(false); Shutdown(0); return;
+                case "--unregister": Shell.UnregisterContextMenu(); Shell.SetAutostart(false); Browser.Unregister(); Shutdown(0); return;
                 case "--unregister-menu": Shell.UnregisterContextMenu(); Settings.ContextMenu = false; Settings.Save(); Shutdown(0); return;
                 case "--autostart":
                     Settings.StartWithWindows = args.Length > 1 && args[1] == "on";
@@ -64,6 +71,7 @@ public partial class App : Application
             {
                 if (Settings.ContextMenu && !Shell.ContextMenuRegistered()) Shell.RegisterContextMenu();
                 if (Settings.StartWithWindows && !Shell.Autostart()) Shell.SetAutostart(true);
+                Browser.Register(); // suit l'exe s'il a changé de dossier
             }
             catch (Exception ex) { Log(ex.ToString()); }
 
@@ -85,14 +93,14 @@ public partial class App : Application
         _debounce.Tick += (_, _) => { _debounce.Stop(); FlushPending(); };
         StartPipeServer();
 
-        bool tray = args.Contains("--tray");
+        bool tray = args.Contains("--tray") || args.Contains("--silent"); // --silent : lancé depuis le navigateur
         if (!tray) ShowMain();
         HandleArgs(args);
         _ = Downloader.UpdateEngine(Settings);
         Updater.Cleanup();
         if (updated && Settings.Notify) _tray.ShowBalloonTip(4000, "Prisme est à jour", $"Version {Updater.Current} installée.", Forms.ToolTipIcon.None);
         if (Shell.IsInstalledCopy) _ = UpdateLoop(); // une build de dev ne se remplace pas par la version publiée
-        // VLC (aperçu de « Retoucher ») se prépare en arrière-plan une fois Prisme affiché : le premier aperçu ne fige plus la fenêtre
+        // VLC (aperçu de « Découpe ») se prépare en arrière-plan une fois Prisme affiché : le premier aperçu ne fige plus la fenêtre
         Dispatcher.BeginInvoke((Action)Prisme.MainWindow.PrepareVlc, DispatcherPriority.ApplicationIdle);
     }
 
@@ -223,13 +231,13 @@ public partial class App : Application
         if (args[0] == "--tray") return;
         if (args[0] == "--capture" && args.Length >= 2) { _win.Capture(args[1], args.Length > 2 && args[2] == "bas"); return; }
         if (args[0] == "--download" && args.Length >= 2 && Downloader.IsUrl(args[1]))
-        {   // Prisme.exe --download <lien> [best|1080|720|mp3]
-            ShowMain(); _win.GoTo("download");
+        {   // Prisme.exe --download <lien> [best|1080|720|mp3] [--silent : depuis le navigateur, Prisme reste où il est]
+            if (!args.Contains("--silent")) { ShowMain(); _win.GoTo("download"); }
             StartDownload(args[1], args.Length > 2 && args[2] is "best" or "1080" or "720" or "mp3" ? args[2] : "best");
             return;
         }
         if (args[0] == "--edit" && args.Length >= 2)
-        {   // Prisme.exe --edit <fichier> [autres musiques…] : onglet Retoucher
+        {   // Prisme.exe --edit <fichier> [autres musiques…] : onglet Découpe
             ShowMain(); _win.EditFiles(args.Skip(1).Where(File.Exists));
             return;
         }

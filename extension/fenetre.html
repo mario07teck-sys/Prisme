@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="fenetre.css">
+</head>
+<body>
+  <div class="halo"></div>
+  <header>
+    <img src="icones/prisme-48.png" alt="" width="30" height="30">
+    <span class="nom">Prisme</span>
+    <span id="etat" class="etat">…</span>
+  </header>
+
+  <section class="page">
+    <div id="titre" class="titre">Cette page</div>
+    <div id="site" class="site"></div>
+  </section>
+
+  <div class="choix">
+    <button class="gros" data-mode="best">
+      <svg viewBox="0 0 24 24"><path d="M3 6h13v12H3z M16 10l5-3v10l-5-3"/></svg>
+      <span><b>Vidéo</b><small>Meilleure qualité</small></span>
+    </button>
+    <div class="ligne">
+      <button data-mode="720"><b>720p</b><small>Plus léger</small></button>
+      <button data-mode="mp3"><b>MP3</b><small>Le son seul</small></button>
+    </div>
+  </div>
+
+  <div id="retour" class="retour" hidden></div>
+
+  <footer>Astuce : clic droit sur une vidéo → <b>Télécharger avec Prisme</b></footer>
+  <script src="fenetre.js"></script>
+</body>
+</html>
