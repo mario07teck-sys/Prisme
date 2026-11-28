@@ -34,6 +34,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         FilesList.ItemsSource = _files;
+        IsVisibleChanged += (_, _) => { if (IsVisible) OfferExtension(); };
         ConvList.ItemsSource = App.Conversions;
         DlList.ItemsSource = App.Downloads;
         _files.CollectionChanged += (_, _) => { if (!_batch) RefreshFiles(); };
@@ -535,8 +536,27 @@ public partial class MainWindow : Window
         ExtBtnText.Text = ok ? "Revoir comment faire" : "Ajouter au navigateur";
     }
 
+    /// <summary>Une seule fois, à l'ouverture : propose l'extension si un navigateur compatible est là et qu'elle n'y est pas.</summary>
+    async void OfferExtension()
+    {
+        if (S.ExtOffered || !Shell.IsInstalledCopy || Browser.Find() == null) return;
+        S.ExtOffered = true; S.Save();
+        if (await Task.Run(Browser.ExtensionInstalled)) return;
+        await Task.Delay(800); // laisse la fenêtre s'afficher
+        GoTo("download");
+        ExtIcon.Data = (Geometry)FindResource("IcBrowser");
+        ExtOvTitle.Text = "Nouveau : télécharger depuis Chrome";
+        ExtOvText.Text = "Ajoute Prisme à ton navigateur : clic droit sur une vidéo → « Télécharger avec Prisme », elle arrive dans " + S.DownloadDir + ". Deux gestes, une seule fois. Tu pourras aussi le faire plus tard depuis la page Télécharger.";
+        ExtSteps.Visibility = ExtWait.Visibility = ExtButtons.Visibility = Visibility.Collapsed;
+        ExtOffer.Visibility = Visibility.Visible;
+        ExtOverlay.Visibility = Visibility.Visible;
+        ExtOverlay.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.18)));
+        ((Storyboard)FindResource("PageIn")).Begin(ExtCard);
+    }
+
     void AddExtension_Click(object sender, RoutedEventArgs e)
     {
+        ExtOffer.Visibility = Visibility.Collapsed;
         var b = Browser.Find();
         ExtIcon.Data = (Geometry)FindResource("IcBrowser");
         ExtSteps.Visibility = ExtWait.Visibility = ExtButtons.Visibility = Vis(b != null);

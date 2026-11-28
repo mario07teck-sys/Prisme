@@ -23,7 +23,8 @@ public class Settings
     public bool Gpu { get; set; }                 // encodage vidéo par la carte graphique : plus rapide, fichiers un peu plus lourds
     public DateTime LastEngineUpdate { get; set; }
     public string LastVersion { get; set; } = "";
-    public string UpdateTried { get; set; } = "";   // version déjà lancée en installation : jamais relancée toute seule si elle a échoué
+    public string UpdateTried { get; set; } = "";
+    public bool ExtOffered { get; set; }          // l'extension du navigateur a été proposée une fois à l'ouverture   // version déjà lancée en installation : jamais relancée toute seule si elle a échoué
 
     public static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Prisme");
     static string FilePath => Path.Combine(Dir, "settings.json");

@@ -946,6 +946,12 @@
               <Control Template="{StaticResource Spinner}" VerticalAlignment="Center"/>
               <TextBlock Style="{StaticResource LoadingText}" Text="Prisme attend que le navigateur prenne l'extension…" Margin="12,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
+            <StackPanel x:Name="ExtOffer" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0" Visibility="Collapsed">
+              <Button Style="{StaticResource Btn}" Content="Plus tard" Click="ExtClose_Click" Margin="0,0,10,0"/>
+              <Button Style="{StaticResource Primary}" Padding="22,10" Click="AddExtension_Click">
+                <TextBlock Text="Ajouter maintenant" Foreground="White" FontSize="14"/>
+              </Button>
+            </StackPanel>
             <StackPanel x:Name="ExtButtons" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
               <Button Style="{StaticResource Btn}" Content="Rouvrir la page et le dossier" Click="ExtReopen_Click" Margin="0,0,10,0"/>
               <Button Style="{StaticResource Primary}" Padding="22,10" Click="ExtClose_Click">
